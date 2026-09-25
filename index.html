@@ -184,22 +184,28 @@ td.dim{color:var(--ink-3)}
 @media(max-width:700px){
   .wrap{padding:12px 16px 40px}
   h1{font-size:22px}.sub{font-size:12.5px;margin:2px 0 10px}
-  .stage{aspect-ratio:3/4.4;min-height:0}
+  .stage{aspect-ratio:3/4.6;min-height:0}
   .felt{left:7%;top:9%;width:86%;height:80%}
   .stamp{font-size:10.5px;left:10px;top:7px}
   .stamp .xtra{display:none}
-  .badge{font-size:9px;padding:0 5px}.badges{right:10px;top:7px}
+  .badges{display:none}
   .wordmark{display:none}
-  .seat{width:96px}
-  .plate{min-width:78px;padding:3px 6px 4px;border-radius:6px}
-  .plate .nm{font-size:11px}.plate .nm .posn{font-size:8.5px;margin-left:3px}
+  .seat{width:84px;gap:2px}
+  .plate{min-width:0;width:84px;padding:2px 4px 3px;border-radius:6px}
+  .plate .nm{font-size:10.5px}.plate .nm .posn{font-size:8px;margin-left:3px}
+  .seat.hero{width:auto}.seat.hero .plate{width:auto;min-width:96px}
   .plate .stk{font-size:10px}
-  .card{font-size:11px;padding:0 3px;line-height:1.6}
-  .seat.hero .cards .card{font-size:14px;padding:0 4px}
-  .board .card{font-size:15px;padding:1px 4px}
-  .board .lbl{width:20px;font-size:8.5px}
-  .board{gap:3px}
-  .seat .cards{gap:2px;min-height:19px}
+  .card{font-size:10px;padding:0 2px;line-height:1.6}
+  /* face-down bot hands shrink to slivers; the hero's cards stay big */
+  .seat .card.back{width:8px;padding:0}
+  .seat .cards{gap:2px;min-height:17px}
+  .seat.hero .cards{gap:4px}
+  .seat.hero .cards .card{font-size:17px;padding:0 5px}
+  .board .card{font-size:13px;padding:1px 3px}
+  .board .card.gap{margin-left:3px}
+  .board .lbl{width:18px;font-size:8px}
+  .potnote.odds{display:none}
+  .board{gap:2px}
   .act{font-size:9px;padding:0 6px}
   .bet{font-size:10px;padding:0 6px}
   .eqp{font-size:8.5px}
@@ -580,9 +586,17 @@ function done(){
 
 /* ================= view ================= */
 function seatXY(k,n){  // same ring as the replayer: hero bottom, clockwise
-  const a=Math.PI/2+k/n*2*Math.PI;
-  return NARROW.matches?[50+33*Math.cos(a),50+38.5*Math.sin(a)]:
-    [50+43.5*Math.cos(a),49+40*Math.sin(a)];
+  if(!NARROW.matches){
+    const a=Math.PI/2+k/n*2*Math.PI;
+    return[50+43.5*Math.cos(a),49+40*Math.sin(a)];
+  }
+  // phones: the ring is too tight for even spacing, so the hero gets the
+  // bottom to themselves and the others share the rest of the oval,
+  // leaving a GAP-radian clearing either side of the hero's cards
+  if(k===0)return[50,89];
+  const GAP=.8,a=n===2?1.5*Math.PI:
+    Math.PI/2+GAP+(k-1)/(n-2)*(2*Math.PI-2*GAP);
+  return[50+38*Math.cos(a),51+39*Math.sin(a)];
 }
 function betXY(x,y){return[50+(x-50)*.52,47+(y-47)*.47];}
 
@@ -612,8 +626,8 @@ function stageHTML(){
     notes+=`<div class="potnote dimn">to play: ${fmt(G.P0)} · ${potters().length} in</div>`;
     if(G.phase==="hero"&&show.odds){
       const h=G.hero;
-      notes+=h.k?`<div class="potnote">pot odds: ${fmt(G.P0)} to win ${fmt(h.potNow)} · need ${pct(h.need)}</div>`:
-        `<div class="potnote">no one in yet · need ${pct(h.need)} vs one caller</div>`;
+      notes+=h.k?`<div class="potnote odds">pot odds: ${fmt(G.P0)} to win ${fmt(h.potNow)} · need ${pct(h.need)}</div>`:
+        `<div class="potnote odds">no one in yet · need ${pct(h.need)} vs one caller</div>`;
     }
   }
   html+=`<div class="center">${boards}<div class="pot">POT <b>${fmt(G.pot)}</b></div>${notes}</div>`;
