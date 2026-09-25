@@ -322,6 +322,22 @@ function evalPLO(hole,board){  // board: 5 encoded cards
 const CATS=["High card","Pair","Two pair","Trips","Straight","Flush",
   "Full house","Quads","Straight flush"];
 const catOf=v=>CATS[Math.floor(v/1e8)];
+/* name the made hand. The score alone can't tell a set (pocket pair plus
+ * one on the board) from trips (one in the hand, two on the board), so
+ * find the two hole cards the best hand used */
+function handName(hole,board){
+  const v=evalPLO(hole,board),cat=catOf(v);
+  if(cat!=="Trips")return cat;
+  const hp=PAIRS[hole.length];
+  for(let i=0;i<hp.length;i++){
+    const ha=hole[hp[i][0]],hb=hole[hp[i][1]];
+    for(let j=0;j<10;j++){
+      const t=TRIPS5[j];
+      if(eval5i(ha,hb,board[t[0]],board[t[1]],board[t[2]])===v&&(ha>>2)===(hb>>2))return"Set";
+    }
+  }
+  return"Trips";
+}
 
 function deckWithout(used){
   const s=new Set(used),d=[];
@@ -525,7 +541,7 @@ function showdown(){
     const sc=L.map(s=>evalPLO(G.hands[s],full)),best=Math.max(...sc);
     const win=L.filter((s,i)=>sc[i]===best);
     win.forEach(s=>{G.seat[s].won+=half/win.length;});
-    boards.push({win,cat:catOf(best)});
+    boards.push({win,cat:handName(G.hands[win[0]],full)});
   }
   L.forEach(s=>{
     const w=G.seat[s].won;sess.net[NAMES[s]]+=w;
