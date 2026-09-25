@@ -241,6 +241,7 @@ field beats the average share.</div>
   <span class="sep"></span>
   <label class="set">Your name <input type="text" id="cfgName" maxlength="12" autocomplete="nickname" spellcheck="false"></label>
   <label class="set">Players <select id="cfgPlayers"></select></label>
+  <label class="set">Position <select id="cfgSeat"></select></label>
   <label class="set">Cards <select id="cfgHole">
     <option value="4">PLO4</option><option value="5">PLO5</option><option value="6">PLO6</option></select></label>
   <label class="set">Ante $ <input type="number" id="cfgAnte" min="1" step="25" value="200"></label>
@@ -411,7 +412,7 @@ const store={
   get(k,d){try{const v=localStorage.getItem("cucaru."+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){try{localStorage.setItem("cucaru."+k,JSON.stringify(v));}catch(e){}}
 };
-let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY"},store.get("cfg",{}));
+let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate"},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
 let show=Object.assign({odds:true,eq:true,cards:false},store.get("show",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
@@ -424,7 +425,9 @@ let G=null,timer=null;
 function newHand(){
   clearTimeout(timer);
   const n=Math.min(cfg.players,maxPlayers(cfg.hole)),H=cfg.hole,A=cfg.ante;
-  if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
+  const fixed=posLabels(n).indexOf(cfg.seat);
+  if(fixed>=0)sess.btn=(n-fixed)%n;
+  else if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
   const deck=shuffle([...Array(52).keys()]);
   const hands=[];for(let s=0;s<n;s++)hands.push(deck.splice(0,H));
   const flops=[deck.splice(0,3),deck.splice(0,3)];
@@ -676,6 +679,11 @@ function syncControls(){
   if(cfg.players>mp)cfg.players=mp;
   $("cfgPlayers").innerHTML=Array.from({length:mp-1},(_,i)=>i+2)
     .map(n=>`<option value="${n}"${n===cfg.players?" selected":""}>${n}</option>`).join("");
+  // positions for this table size, in action order (SB first, BTN last)
+  const seats=posLabels(cfg.players).slice(1).concat("BTN");
+  if(!seats.includes(cfg.seat))cfg.seat="rotate";
+  $("cfgSeat").innerHTML=[["rotate","Rotating"]].concat(seats.map(x=>[x,x]))
+    .map(([v,t])=>`<option value="${v}"${v===cfg.seat?" selected":""}>${t}</option>`).join("");
   $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;
   $("togOdds").setAttribute("aria-pressed",show.odds);
   $("togEq").setAttribute("aria-pressed",show.eq);
@@ -688,6 +696,7 @@ $("dealBtn").onclick=()=>{if(!G||G.phase==="done")newHand();};
 [["togOdds","odds"],["togEq","eq"],["togCards","cards"]].forEach(([id,k])=>{
   $(id).onclick=()=>{show[k]=!show[k];syncControls();render();};
 });
+$("cfgSeat").onchange=e=>{cfg.seat=e.target.value;syncControls();};
 $("cfgPlayers").onchange=e=>{cfg.players=+e.target.value;syncControls();};
 $("cfgHole").onchange=e=>{cfg.hole=+e.target.value;syncControls();};
 $("cfgAnte").onchange=e=>{cfg.ante=Math.max(1,Math.round(+e.target.value||200));syncControls();};
