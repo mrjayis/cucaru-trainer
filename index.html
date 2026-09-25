@@ -205,6 +205,7 @@ td.dim{color:var(--ink-3)}
   .board .card.gap{margin-left:3px}
   .board .lbl{width:18px;font-size:8px}
   .potnote.odds{display:none}
+  .bet{display:none}
   .board{gap:2px}
   .act{font-size:9px;padding:0 6px}
   .bet{font-size:10px;padding:0 6px}
@@ -593,8 +594,8 @@ function seatXY(k,n){  // same ring as the replayer: hero bottom, clockwise
   // phones: the ring is too tight for even spacing, so the hero gets the
   // bottom to themselves and the others share the rest of the oval,
   // leaving a GAP-radian clearing either side of the hero's cards
-  if(k===0)return[50,89];
-  const GAP=.8,a=n===2?1.5*Math.PI:
+  if(k===0)return[50,90];
+  const GAP=1.05,a=n===2?1.5*Math.PI:
     Math.PI/2+GAP+(k-1)/(n-2)*(2*Math.PI-2*GAP);
   return[50+38*Math.cos(a),51+39*Math.sin(a)];
 }
