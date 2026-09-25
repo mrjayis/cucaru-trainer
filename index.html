@@ -234,6 +234,7 @@ field beats the average share.</div>
 
 <div class="controls">
   <button id="dealBtn">Deal next hand ▸</button>
+  <button class="tog" id="togAuto" aria-pressed="false" title="deal the next hand as soon as this one ends">Auto-deal</button>
   <span class="sep"></span>
   <button class="tog" id="togOdds" aria-pressed="true">Pot odds</button>
   <button class="tog" id="togEq" aria-pressed="true">My equity</button>
@@ -249,7 +250,8 @@ field beats the average share.</div>
     <option value="normal">Normal</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
 </div>
 <div class="hint">Keys: <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or
-<kbd>Space</kbd> next hand. Settings apply from the next deal. <b>Pot odds</b> is
+<kbd>Space</kbd> next hand (at any point: if you haven't acted, you fold and the
+rest of the hand is played out instantly). Settings apply from the next deal. <b>Pot odds</b> is
 the share of the final pot you need to win if nobody behind you comes in.
 When no one has put money in yet, it's the price against one caller, since
 if everyone folds you take the antes.
@@ -414,16 +416,16 @@ const store={
 };
 let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate"},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
-let show=Object.assign({odds:true,eq:true,cards:false},store.get("show",{}));
+let show=Object.assign({odds:true,eq:true,cards:false,auto:false},store.get("show",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
 let sess=Object.assign(freshSession(),store.get("sess",{}));
 if(sess.net.JAY!=null&&sess.net.HERO==null){sess.net.HERO=sess.net.JAY;delete sess.net.JAY;}
 const esc=t=>String(t).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
 const disp=s=>s===0?esc(cfg.name||"JAY"):NAMES[s];
-let G=null,timer=null;
+let G=null,timer=null,rush=false;
 
 function newHand(){
-  clearTimeout(timer);
+  clearTimeout(timer);rush=false;
   const n=Math.min(cfg.players,maxPlayers(cfg.hole)),H=cfg.hole,A=cfg.ante;
   const fixed=posLabels(n).indexOf(cfg.seat);
   if(fixed>=0)sess.btn=(n-fixed)%n;
@@ -448,12 +450,31 @@ const live=()=>G.seat.map((s,i)=>i).filter(i=>!G.seat[i].folded);
 const potters=()=>G.seat.map((s,i)=>i).filter(i=>G.seat[i].in);
 
 function step(){
-  const L=live();
-  if(L.length===1||G.idx>=G.order.length)return finish();
-  const s=G.order[G.idx];G.actor=s;
-  if(s===0){G.phase="hero";G.hero=heroInfo();render();return;}
-  render();
-  timer=setTimeout(()=>{botAct(s);G.idx++;step();},delay());
+  for(;;){
+    const L=live();
+    if(L.length===1||G.idx>=G.order.length)return finish();
+    const s=G.order[G.idx];G.actor=s;
+    if(rush){
+      if(s===0){
+        if(G.hero){G.hero.choice="FOLD";sess.decisions++;}
+        else G.hero={choice:"SKIP",eqLive:null,need:null,L:null};
+        fold(0);
+      }else botAct(s);
+      G.idx++;continue;
+    }
+    if(s===0){G.phase="hero";G.hero=heroInfo();render();return;}
+    render();
+    timer=setTimeout(()=>{botAct(s);G.idx++;step();},delay());
+    return;
+  }
+}
+/* Deal pressed mid-hand: finish this one instantly (you fold if you have
+ * not acted), score it, then deal */
+function dealNow(){
+  if(!G||G.phase==="done")return newHand();
+  clearTimeout(timer);rush=true;
+  if(G.phase==="runout"){G.street=2;showdown();}
+  else{G.phase="action";step();}
 }
 function putIn(s){
   G.seat[s].in=true;G.seat[s].act=["POT","hot"];G.pot+=G.P0;
@@ -491,6 +512,7 @@ function finish(){
     G.result={uncontested:true,boards:null};
     return done();
   }
+  if(rush){G.street=2;return showdown();}
   G.phase="runout";render();
   const d=Math.max(delay(),cfg.speed==="instant"?0:450);
   timer=setTimeout(()=>{G.street=1;render();
@@ -536,6 +558,7 @@ function done(){
     net,ev,field:h?h.L:null});
   sess.log=sess.log.slice(0,60);
   store.set("sess",sess);
+  if(rush||show.auto){rush=false;return newHand();}
   render();
 }
 
@@ -601,6 +624,13 @@ function stageHTML(){
   return html;
 }
 
+function lastHTML(){
+  const e=sess.log[0];
+  if(!G||G.phase==="done"||!e||e.no!==G.no-1)return"";
+  const what=e.play==="—"?"no decision":e.play==="SKIP"?"skipped":e.play.toLowerCase();
+  return`<div class="row"><span class="k">Last hand</span><b class="${e.net>=0?"good":"bad"}">${sfmt(e.net)}</b>`+
+    `<span class="msg">#${e.no} · ${what}${e.trueEq!=null?` · flop eq ${pct(e.trueEq)}`:""}</span></div>`;
+}
 function infoHTML(){
   if(!G)return`<div class="msg">Deal a hand to start.</div>`;
   if(G.phase==="hero"){
@@ -620,11 +650,11 @@ function infoHTML(){
       `<span class="msg">no one in yet: you win ${fmt(h.potNow)} if everyone folds · `+
       `need ${pct(h.need)} vs one caller${h.behind>1?`, ${pct(h.need1)} vs two`:""}</span></div>`);
     if(!rows.length)rows.push(`<div class="msg">Your call. Pot odds and equity are hidden.</div>`);
-    return rows.join("");
+    return rows.join("")+lastHTML();
   }
   if(G.phase!=="done"){
     return`<div class="msg">${G.phase==="runout"?"Dealing the turns and rivers…":
-      G.actor!=null?disp(G.actor)+" ("+G.pos[G.actor]+") is deciding…":"…"}</div>`;
+      G.actor!=null?disp(G.actor)+" ("+G.pos[G.actor]+") is deciding…":"…"}</div>`+lastHTML();
   }
   const e=sess.log[0],rows=[];
   const res=`<b class="${e.net>=0?"good":"bad"}">${sfmt(e.net)}</b>`;
@@ -670,7 +700,6 @@ function render(){
   const my=G&&G.phase==="hero";
   $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
   $("potAmt").textContent=G?"put in "+fmt(G.P0):" ";
-  $("dealBtn").disabled=!!G&&G.phase!=="done";
   $("session").innerHTML=sessionHTML();
   $("log").innerHTML=logHTML();
 }
@@ -688,12 +717,13 @@ function syncControls(){
   $("togOdds").setAttribute("aria-pressed",show.odds);
   $("togEq").setAttribute("aria-pressed",show.eq);
   $("togCards").setAttribute("aria-pressed",show.cards);
+  $("togAuto").setAttribute("aria-pressed",show.auto);
   store.set("cfg",cfg);store.set("show",show);
 }
 $("potBtn").onclick=()=>heroAct(true);
 $("foldBtn").onclick=()=>heroAct(false);
-$("dealBtn").onclick=()=>{if(!G||G.phase==="done")newHand();};
-[["togOdds","odds"],["togEq","eq"],["togCards","cards"]].forEach(([id,k])=>{
+$("dealBtn").onclick=dealNow;
+[["togOdds","odds"],["togEq","eq"],["togCards","cards"],["togAuto","auto"]].forEach(([id,k])=>{
   $(id).onclick=()=>{show[k]=!show[k];syncControls();render();};
 });
 $("cfgSeat").onchange=e=>{cfg.seat=e.target.value;syncControls();};
@@ -708,7 +738,7 @@ document.addEventListener("keydown",e=>{
   const k=e.key.toLowerCase();
   if(k==="p")heroAct(true);
   else if(k==="f")heroAct(false);
-  else if(k==="n"||k===" "){if(!G||G.phase==="done"){e.preventDefault();newHand();}}
+  else if(k==="n"||k===" "){e.preventDefault();dealNow();}
 });
 NARROW.addEventListener("change",render);
 syncControls();
