@@ -250,6 +250,8 @@ field beats the average share.</div>
 <div class="hint">Keys: <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or
 <kbd>Space</kbd> next hand. Settings apply from the next deal. <b>Pot odds</b> is
 the share of the final pot you need to win if nobody behind you comes in.
+When no one has put money in yet, it's the price against one caller, since
+if everyone folds you take the antes.
 <b>My equity</b> is your share of both boards against random hands, sampled
 from what you can actually see (your cards and the two flops).</div>
 
@@ -465,7 +467,7 @@ function heroInfo(){
   const k=potters().length,L=live().length;
   return{k,L,eqLive:eqField(G.hands[0],G.flops,L-1,1500),
     eqIn:k?eqField(G.hands[0],G.flops,k,1500):null,
-    need:1/(k+2),need1:1/(k+3),avg:1/L,potNow:G.pot};
+    need:k?1/(k+2):1/3,need1:k?1/(k+3):1/4,behind:L-1-k,avg:1/L,potNow:G.pot};
 }
 function heroAct(pot){
   if(!G||G.phase!=="hero")return;
@@ -567,7 +569,8 @@ function stageHTML(){
     notes+=`<div class="potnote dimn">to play: ${fmt(G.P0)} · ${potters().length} in</div>`;
     if(G.phase==="hero"&&show.odds){
       const h=G.hero;
-      notes+=`<div class="potnote">pot odds: ${fmt(G.P0)} to win ${fmt(h.potNow)} · need ${pct(h.need)}</div>`;
+      notes+=h.k?`<div class="potnote">pot odds: ${fmt(G.P0)} to win ${fmt(h.potNow)} · need ${pct(h.need)}</div>`:
+        `<div class="potnote">no one in yet · need ${pct(h.need)} vs one caller</div>`;
     }
   }
   html+=`<div class="center">${boards}<div class="pot">POT <b>${fmt(G.pot)}</b></div>${notes}</div>`;
@@ -605,8 +608,13 @@ function infoHTML(){
       if(h.eqIn!=null)rows.push(`<div class="row"><span class="k"></span><b>${pct(h.eqIn)}</b>`+
         `<span class="msg">vs the ${h.k} already in</span></div>`);
     }
-    if(show.odds)rows.push(`<div class="row"><span class="k">Pot odds</span><b>${pct(h.need)}</b>`+
-      `<span class="msg">${fmt(G.P0)} to win ${fmt(h.potNow)} · ${pct(h.need1)} if one more comes in</span></div>`);
+    if(show.odds)rows.push(h.k?
+      `<div class="row"><span class="k">Pot odds</span><b>${pct(h.need)}</b>`+
+      `<span class="msg">${fmt(G.P0)} to win ${fmt(h.potNow)}`+
+      `${h.behind?` · ${pct(h.need1)} if one more comes in`:""}</span></div>`:
+      `<div class="row"><span class="k">Pot odds</span><b>${pct(h.need)}</b>`+
+      `<span class="msg">no one in yet: you win ${fmt(h.potNow)} if everyone folds · `+
+      `need ${pct(h.need)} vs one caller${h.behind>1?`, ${pct(h.need1)} vs two`:""}</span></div>`);
     if(!rows.length)rows.push(`<div class="msg">Your call. Pot odds and equity are hidden.</div>`);
     return rows.join("");
   }
