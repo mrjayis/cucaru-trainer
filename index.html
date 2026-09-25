@@ -411,13 +411,14 @@ const store={
   get(k,d){try{const v=localStorage.getItem("cucaru."+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){try{localStorage.setItem("cucaru."+k,JSON.stringify(v));}catch(e){}}
 };
-let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"HERO"},store.get("cfg",{}));
+let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY"},store.get("cfg",{}));
+if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
 let show=Object.assign({odds:true,eq:true,cards:false},store.get("show",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
 let sess=Object.assign(freshSession(),store.get("sess",{}));
 if(sess.net.JAY!=null&&sess.net.HERO==null){sess.net.HERO=sess.net.JAY;delete sess.net.JAY;}
 const esc=t=>String(t).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
-const disp=s=>s===0?esc(cfg.name||"HERO"):NAMES[s];
+const disp=s=>s===0?esc(cfg.name||"JAY"):NAMES[s];
 let G=null,timer=null;
 
 function newHand(){
@@ -690,7 +691,7 @@ $("dealBtn").onclick=()=>{if(!G||G.phase==="done")newHand();};
 $("cfgPlayers").onchange=e=>{cfg.players=+e.target.value;syncControls();};
 $("cfgHole").onchange=e=>{cfg.hole=+e.target.value;syncControls();};
 $("cfgAnte").onchange=e=>{cfg.ante=Math.max(1,Math.round(+e.target.value||200));syncControls();};
-$("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12)||"HERO";store.set("cfg",cfg);render();};
+$("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12)||"JAY";store.set("cfg",cfg);render();};
 $("cfgSpeed").onchange=e=>{cfg.speed=e.target.value;syncControls();};
 $("resetBtn").onclick=()=>{sess=freshSession();store.set("sess",sess);render();};
 document.addEventListener("keydown",e=>{
