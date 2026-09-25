@@ -1,0 +1,698 @@
+<!doctype html>
+<title>Cucaru trainer</title>
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>
+/* tokens: the hand replayer's palette, so the two pages read as one set */
+:root{
+  --surface:#f7f6f2; --panel:#fffefb; --line:#e2dfd6;
+  --ink:#151713; --ink-2:#5b5f57; --ink-3:#8e9188;
+  --accent:#0f7a54; --blue:#2a78d6; --red:#c03434;
+  --pos:#0f7a54; --neg:#c03434; --chip:#eef2ec;
+  --felt:#e8efe7; --felt2:#dde8dc; --glow:rgba(15,122,84,.30);
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  color-scheme:dark;
+  --surface:#16191a; --panel:#1d2123; --line:#2c3134;
+  --ink:#eceee9; --ink-2:#a8ada3; --ink-3:#767b73;
+  --accent:#2fbf85; --blue:#3987e5; --red:#e66767;
+  --pos:#2fbf85; --neg:#e66767; --chip:#252b28;
+  --felt:#1c2622; --felt2:#182019; --glow:rgba(47,191,133,.35);
+}}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --surface:#16191a; --panel:#1d2123; --line:#2c3134;
+  --ink:#eceee9; --ink-2:#a8ada3; --ink-3:#767b73;
+  --accent:#2fbf85; --blue:#3987e5; --red:#e66767;
+  --pos:#2fbf85; --neg:#e66767; --chip:#252b28;
+  --felt:#1c2622; --felt2:#182019; --glow:rgba(47,191,133,.35);
+}
+*{box-sizing:border-box}
+body{background:var(--surface);color:var(--ink);margin:0;
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:1080px;margin:0 auto;padding:20px 16px 60px}
+h1{font-family:"Avenir Next Condensed","Arial Narrow",Impact,sans-serif;
+  font-size:28px;font-weight:700;text-transform:uppercase;margin:0;
+  letter-spacing:.02em}
+.eyebrow{color:var(--accent);font-size:12px;font-weight:700;
+  letter-spacing:.14em;text-transform:uppercase;margin-bottom:2px}
+.sub{color:var(--ink-2);margin:4px 0 14px;font-size:13.5px;max-width:760px}
+
+/* ---- stage ---- */
+.stage{position:relative;background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;aspect-ratio:16/10;
+  max-width:100%;min-height:430px;overflow:hidden;user-select:none}
+.felt{position:absolute;left:11%;top:13%;width:78%;height:72%;
+  border-radius:50%;
+  background:radial-gradient(ellipse at 50% 42%,var(--felt) 0%,var(--felt2) 78%);
+  border:2px solid var(--line);box-shadow:inset 0 0 46px rgba(0,0,0,.10)}
+.stamp{position:absolute;left:14px;top:10px;color:var(--ink-3);
+  font-size:12.5px;font-weight:600;letter-spacing:.04em}
+.stamp b{color:var(--ink-2)}
+.badges{position:absolute;right:14px;top:10px;display:flex;gap:6px}
+.badge{font-size:10.5px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;color:var(--accent);
+  border:1px solid var(--accent);border-radius:4px;padding:1px 7px}
+.wordmark{position:absolute;right:14px;bottom:9px;color:var(--ink-3);
+  font-size:11px;font-weight:700;letter-spacing:.14em;text-transform:uppercase}
+.center{position:absolute;left:50%;top:47%;transform:translate(-50%,-50%);
+  display:flex;flex-direction:column;align-items:center;gap:6px}
+.board{display:flex;gap:5px;align-items:center}
+.board .lbl{color:var(--ink-3);font-size:10px;font-weight:700;
+  letter-spacing:.08em;width:26px;text-align:right;margin-right:2px}
+.card{display:inline-block;background:var(--panel);
+  border:1px solid var(--line);border-radius:4px;padding:0 5px;
+  font:700 15px/1.75 ui-monospace,SFMono-Regular,Menlo,monospace}
+.board .card{font-size:21px;line-height:1.7;padding:1px 7px;
+  box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.board .card.gap{margin-left:6px}
+.cs{color:var(--ink)}.ch{color:var(--red)}
+.cd{color:var(--blue)}.cc{color:var(--accent)}
+.card.back{color:transparent;box-shadow:none;
+  background:repeating-linear-gradient(45deg,var(--chip) 0 3px,var(--line) 3px 5px)}
+.board .card.slot{opacity:.45}
+.board.won .card:not(.back){border-color:var(--accent)}
+.pot{background:var(--chip);border:1px solid var(--line);border-radius:14px;
+  padding:2px 13px;font-size:13.5px;font-weight:700;color:var(--ink-2)}
+.pot b{color:var(--ink)}
+.potnote{font-size:11px;font-weight:600;color:var(--accent);
+  letter-spacing:.02em;text-align:center;font-variant-numeric:tabular-nums}
+.potnote.dimn{color:var(--ink-2)}
+.dbtn{position:absolute;transform:translate(-50%,-50%);width:20px;
+  height:20px;border-radius:50%;background:var(--panel);
+  border:1.5px solid var(--ink-2);color:var(--ink);
+  font:800 11px/17px -apple-system,sans-serif;text-align:center;
+  box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.seat{position:absolute;transform:translate(-50%,-50%);width:148px;
+  display:flex;flex-direction:column;align-items:center;gap:3px;
+  transition:opacity .15s}
+.seat.folded{opacity:.38}
+.seat .cards{display:flex;gap:3px;min-height:26px}
+.seat.hero .cards .card{font-size:18px;padding:0 6px}
+.plate{background:var(--panel);border:1px solid var(--line);border-radius:7px;
+  padding:4px 10px 5px;text-align:center;min-width:118px;
+  box-shadow:0 1px 4px rgba(0,0,0,.10)}
+.seat.acting .plate{border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent),0 1px 4px rgba(0,0,0,.10)}
+.seat.won .plate{border-color:var(--accent);
+  box-shadow:0 0 0 2px var(--accent),0 0 18px var(--glow)}
+.plate .nm{font-weight:700;font-size:13.5px;letter-spacing:.02em;white-space:nowrap}
+.plate .nm .posn{color:var(--accent);font-size:10.5px;font-weight:700;
+  margin-left:5px;letter-spacing:.06em}
+.plate .stk{font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.plate .stk .up{color:var(--pos)}.plate .stk .dn{color:var(--neg)}
+.act{font-size:11px;font-weight:700;border-radius:9px;padding:0 8px;
+  background:var(--chip);border:1px solid var(--line);color:var(--ink-2);
+  white-space:nowrap}
+.act.hot{color:var(--accent);border-color:var(--accent)}
+.act.fold{color:var(--ink-3)}
+.act.win{color:var(--panel);background:var(--pos);border-color:var(--pos)}
+.bet{position:absolute;transform:translate(-50%,-50%);
+  background:var(--panel);border:1px solid var(--accent);border-radius:11px;
+  padding:0 9px;font-size:12px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.14)}
+.eqp{font-size:10.5px;font-weight:700;color:var(--accent);margin-left:4px}
+
+/* ---- decision bar ---- */
+.decide{margin-top:14px;display:grid;grid-template-columns:auto auto 1fr;
+  gap:12px;align-items:stretch}
+.bigbtn{font:inherit;font-weight:800;font-size:17px;letter-spacing:.03em;
+  border-radius:8px;padding:12px 26px;cursor:pointer;border:1.5px solid var(--line);
+  background:var(--panel);color:var(--ink);min-width:150px}
+.bigbtn small{display:block;font-size:11px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.06em;text-transform:uppercase}
+.bigbtn.potb{background:var(--accent);border-color:var(--accent);color:var(--panel)}
+.bigbtn.potb small{color:var(--panel);opacity:.8}
+.bigbtn:disabled{opacity:.35;cursor:default}
+.bigbtn:focus-visible,button:focus-visible,select:focus-visible,input:focus-visible{
+  outline:2px solid var(--blue);outline-offset:2px}
+.info{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:8px 12px;display:flex;flex-direction:column;justify-content:center;
+  gap:3px;font-size:13.5px;min-height:62px;font-variant-numeric:tabular-nums}
+.info .row{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.info .k{color:var(--ink-3);font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;min-width:74px}
+.info b{font-size:15px}
+.info .good{color:var(--pos)}.info .bad{color:var(--neg)}
+.info .msg{color:var(--ink-2)}
+
+/* ---- controls ---- */
+.controls{margin-top:12px;display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+select,button,input[type=number],input[type=text]{background:var(--panel);color:var(--ink);
+  border:1px solid var(--line);border-radius:6px;font:inherit;
+  font-size:13.5px;padding:5px 10px}
+input[type=number]{width:92px}
+input[type=text]{width:120px;text-transform:uppercase}
+button{cursor:pointer;font-weight:600}
+button:hover,.bigbtn:hover:not(:disabled){border-color:var(--accent)}
+.bigbtn.potb:hover:not(:disabled){filter:brightness(1.08)}
+.tog{border-radius:14px;padding:4px 12px;color:var(--ink-3)}
+.tog[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);
+  background:var(--chip)}
+label.set{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-2)}
+.sep{width:1px;align-self:stretch;background:var(--line)}
+
+/* ---- session ---- */
+.session{margin-top:22px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:10px}
+.tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:8px 12px}
+.tile .k{color:var(--ink-3);font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase}
+.tile .v{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums}
+.tile .v.up{color:var(--pos)}.tile .v.dn{color:var(--neg)}
+.loghead{display:flex;justify-content:space-between;align-items:baseline;
+  margin:18px 0 6px}
+.loghead h2{font-size:13px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-2);margin:0}
+.logwrap{overflow-x:auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px}
+table{border-collapse:collapse;width:100%;font-size:13px;
+  font-variant-numeric:tabular-nums}
+th,td{padding:5px 10px;text-align:right;white-space:nowrap;
+  border-bottom:1px solid var(--line)}
+th{color:var(--ink-3);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  font-weight:700}
+th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
+tr:last-child td{border-bottom:0}
+td .card{font-size:12px;padding:0 3px;line-height:1.5}
+td.up{color:var(--pos)}td.dn{color:var(--neg)}
+td.dim{color:var(--ink-3)}
+.hint{color:var(--ink-3);font-size:12.5px;margin-top:10px;max-width:760px}
+.hint kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);
+  border-radius:3px;padding:0 4px;background:var(--panel)}
+
+@media(max-width:700px){
+  .wrap{padding:12px 16px 40px}
+  h1{font-size:22px}.sub{font-size:12.5px;margin:2px 0 10px}
+  .stage{aspect-ratio:3/4.4;min-height:0}
+  .felt{left:7%;top:9%;width:86%;height:80%}
+  .stamp{font-size:10.5px;left:10px;top:7px}
+  .stamp .xtra{display:none}
+  .badge{font-size:9px;padding:0 5px}.badges{right:10px;top:7px}
+  .wordmark{display:none}
+  .seat{width:96px}
+  .plate{min-width:78px;padding:3px 6px 4px;border-radius:6px}
+  .plate .nm{font-size:11px}.plate .nm .posn{font-size:8.5px;margin-left:3px}
+  .plate .stk{font-size:10px}
+  .card{font-size:11px;padding:0 3px;line-height:1.6}
+  .seat.hero .cards .card{font-size:14px;padding:0 4px}
+  .board .card{font-size:15px;padding:1px 4px}
+  .board .lbl{width:20px;font-size:8.5px}
+  .board{gap:3px}
+  .seat .cards{gap:2px;min-height:19px}
+  .act{font-size:9px;padding:0 6px}
+  .bet{font-size:10px;padding:0 6px}
+  .eqp{font-size:8.5px}
+  .pot{font-size:11.5px;padding:1px 10px}
+  .potnote{font-size:9.5px;max-width:200px}
+  .dbtn{width:16px;height:16px;font-size:9px;line-height:13px}
+  .decide{grid-template-columns:1fr 1fr}
+  .decide .info{grid-column:1/-1}
+  .bigbtn{min-width:0;padding:12px 10px}
+  .session{grid-template-columns:repeat(2,minmax(0,1fr))}
+  button,select{padding:8px 11px}
+}
+@media (prefers-reduced-motion: reduce){.seat{transition:none}}
+</style>
+
+<div class="wrap">
+<div class="eyebrow">Pokerhud</div>
+<h1>Cucaru trainer</h1>
+<div class="sub">Double-board PLO where everyone antes, two flops come out,
+and each player gets one decision: put in the pot or fold. Action starts
+in the small blind and ends on the button; there is no betting on the
+turn or river. The bots put money in when their equity against the live
+field beats the average share.</div>
+
+<div class="stage" id="stage"></div>
+
+<div class="decide">
+  <button class="bigbtn potb" id="potBtn" disabled>POT<small id="potAmt">&nbsp;</small></button>
+  <button class="bigbtn" id="foldBtn" disabled>FOLD<small>give up the ante</small></button>
+  <div class="info" id="info"></div>
+</div>
+
+<div class="controls">
+  <button id="dealBtn">Deal next hand ▸</button>
+  <span class="sep"></span>
+  <button class="tog" id="togOdds" aria-pressed="true">Pot odds</button>
+  <button class="tog" id="togEq" aria-pressed="true">My equity</button>
+  <button class="tog" id="togCards" aria-pressed="false" title="practice aid: show the bots' hands">Bot cards</button>
+  <span class="sep"></span>
+  <label class="set">Your name <input type="text" id="cfgName" maxlength="12" autocomplete="nickname" spellcheck="false"></label>
+  <label class="set">Players <select id="cfgPlayers"></select></label>
+  <label class="set">Cards <select id="cfgHole">
+    <option value="4">PLO4</option><option value="5">PLO5</option><option value="6">PLO6</option></select></label>
+  <label class="set">Ante $ <input type="number" id="cfgAnte" min="1" step="25" value="200"></label>
+  <label class="set">Speed <select id="cfgSpeed">
+    <option value="normal">Normal</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
+</div>
+<div class="hint">Keys: <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or
+<kbd>Space</kbd> next hand. Settings apply from the next deal. <b>Pot odds</b> is
+the share of the final pot you need to win if nobody behind you comes in.
+<b>My equity</b> is your share of both boards against random hands, sampled
+from what you can actually see (your cards and the two flops).</div>
+
+<div class="session" id="session"></div>
+<div class="loghead"><h2>Your hands</h2><button id="resetBtn">Reset session</button></div>
+<div class="logwrap"><table id="log"></table></div>
+</div>
+
+<script>
+/* ================= engine =================
+ * Integer evaluator ported verbatim from pokerhud/dbbp_engine.js
+ * (ploeval.py's eval5), generalised from 4 to 4/5/6 hole cards: a PLO
+ * hand is the best of every 2-hole x 3-board combination. */
+const RANKS='23456789TJQKA', SUITS='shdc';
+const SUIT={s:"♠",h:"♥",d:"♦",c:"♣"};
+const CNT=new Int8Array(13);
+function eval5i(a,b,c,d,e){
+  CNT.fill(0);
+  CNT[a>>2]++;CNT[b>>2]++;CNT[c>>2]++;CNT[d>>2]++;CNT[e>>2]++;
+  let quad=-1,trip=-1,pa=-1,pb=-1,k0=-1,k1=-1,k2=-1;
+  let H=-1,h1=-1,h2=-1,h3=-1,h4=-1;
+  for(let x=12;x>=0;x--){
+    const n=CNT[x];
+    if(n===0)continue;
+    if(n===4)quad=x;
+    else if(n===3)trip=x;
+    else if(n===2){if(pa<0)pa=x;else pb=x;}
+    else{if(k0<0)k0=x;else if(k1<0)k1=x;else k2=x;}
+    for(let m=0;m<n;m++){
+      if(H<0)H=x;else if(h1<0)h1=x;else if(h2<0)h2=x;else if(h3<0)h3=x;else h4=x;
+    }
+  }
+  const flush=(a&3)===(b&3)&&(b&3)===(c&3)&&(c&3)===(d&3)&&(d&3)===(e&3);
+  let st=false,sh=0;
+  if(quad<0&&trip<0&&pa<0){
+    if(H-h4===4){st=true;sh=H;}
+    else if(H===12&&h1===3&&h2===2&&h3===1&&h4===0){st=true;sh=3;}
+  }
+  if(flush&&st)return 800000000+sh;
+  if(quad>=0)return 700000000+quad*14+Math.max(k0,0);
+  if(trip>=0&&pa>=0)return 600000000+trip*14+pa;
+  if(flush)return 500000000+H*28561+h1*2197+h2*169+h3*13+h4;
+  if(st)return 400000000+sh;
+  if(trip>=0)return 300000000+trip*169+Math.max(k0,0)*13+Math.max(k1,0);
+  if(pa>=0&&pb>=0)return 200000000+pa*196+pb*14+Math.max(k0,0);
+  if(pa>=0)return 100000000+pa*2744+Math.max(k0,0)*196+Math.max(k1,0)*14+Math.max(k2,0);
+  return H*28561+h1*2197+h2*169+h3*13+h4;
+}
+const PAIRS={};
+for(let n=4;n<=6;n++){PAIRS[n]=[];for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)PAIRS[n].push([i,j]);}
+const TRIPS5=[];
+for(let a=0;a<3;a++)for(let b=a+1;b<4;b++)for(let c=b+1;c<5;c++)TRIPS5.push([a,b,c]);
+function evalPLO(hole,board){  // board: 5 encoded cards
+  let best=-1;const hp=PAIRS[hole.length];
+  for(let i=0;i<hp.length;i++){
+    const ha=hole[hp[i][0]],hb=hole[hp[i][1]];
+    for(let j=0;j<10;j++){
+      const t=TRIPS5[j];
+      const v=eval5i(ha,hb,board[t[0]],board[t[1]],board[t[2]]);
+      if(v>best)best=v;
+    }
+  }
+  return best;
+}
+const CATS=["High card","Pair","Two pair","Trips","Straight","Flush",
+  "Full house","Quads","Straight flush"];
+const catOf=v=>CATS[Math.floor(v/1e8)];
+
+function deckWithout(used){
+  const s=new Set(used),d=[];
+  for(let c=0;c<52;c++)if(!s.has(c))d.push(c);
+  return d;
+}
+function shuffle(d){
+  for(let i=d.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[d[i],d[j]]=[d[j],d[i]];}
+  return d;
+}
+
+/* Equity against random hands: what a player can know at decision time
+ * (own cards + both flops). Each trial deals nOpp random hands plus a
+ * turn and river for each board from one deck; each board is half the
+ * pot, ties split. */
+function eqField(hole,flops,nOpp,trials){
+  if(nOpp<=0)return 1;
+  const H=hole.length,d=deckWithout(hole.concat(flops[0],flops[1]));
+  const need=nOpp*H+4,top=new Array(5),bot=new Array(5),opp=new Array(H);
+  for(let i=0;i<3;i++){top[i]=flops[0][i];bot[i]=flops[1][i];}
+  const oppScore=[new Float64Array(nOpp),new Float64Array(nOpp)];
+  let tally=0;
+  for(let t=0;t<trials;t++){
+    for(let k=0;k<need;k++){
+      const idx=k+Math.floor(Math.random()*(d.length-k));
+      const tmp=d[k];d[k]=d[idx];d[idx]=tmp;
+    }
+    top[3]=d[nOpp*H];top[4]=d[nOpp*H+1];bot[3]=d[nOpp*H+2];bot[4]=d[nOpp*H+3];
+    const boards=[top,bot];
+    for(let b=0;b<2;b++){
+      const me=evalPLO(hole,boards[b]);
+      let best=-1,ties=0;
+      for(let o=0;o<nOpp;o++){
+        for(let c=0;c<H;c++)opp[c]=d[o*H+c];
+        const v=evalPLO(opp,boards[b]);
+        if(v>best){best=v;ties=0;}
+        if(v===best)ties++;
+      }
+      if(me>best)tally+=.5;
+      else if(me===best)tally+=.5/(ties+1);
+    }
+  }
+  return tally/trials;
+}
+
+/* Exact equity with every hand known (the result screen). Each board's
+ * turn and river are uniform over the cards not yet seen, so each board
+ * is enumerated on its own and the two halves are averaged. */
+function eqExact(hands,flops,dead){
+  const n=hands.length,d=deckWithout(dead.concat(flops[0],flops[1]));
+  const out=new Float64Array(n),sc=new Float64Array(n);
+  for(let b=0;b<2;b++){
+    const full=flops[b].concat([0,0]);let cnt=0;
+    const tally=new Float64Array(n);
+    for(let i=0;i<d.length;i++)for(let j=i+1;j<d.length;j++){
+      full[3]=d[i];full[4]=d[j];let best=-1;
+      for(let p=0;p<n;p++){sc[p]=evalPLO(hands[p],full);if(sc[p]>best)best=sc[p];}
+      let ties=0;for(let p=0;p<n;p++)if(sc[p]===best)ties++;
+      for(let p=0;p<n;p++)if(sc[p]===best)tally[p]+=1/ties;
+      cnt++;
+    }
+    for(let p=0;p<n;p++)out[p]+=.5*tally[p]/cnt;
+  }
+  return Array.from(out);
+}
+
+/* ================= game ================= */
+const NAMES=["HERO","ROSA","MILO","DEV","KAI","NORA","OTTO","SAGE","IVY","REX"];
+const MIDDLE={0:[],1:["CO"],2:["HJ","CO"],3:["LJ","HJ","CO"],4:["MP","LJ","HJ","CO"],
+  5:["UTG","MP","LJ","HJ","CO"],6:["UTG","UTG1","MP","LJ","HJ","CO"],
+  7:["UTG","UTG1","UTG2","MP","LJ","HJ","CO"]};
+function posLabels(n){  // clockwise from the button
+  if(n===2)return["BTN","SB"];
+  return["BTN","SB","BB"].concat(MIDDLE[n-3]);
+}
+const maxPlayers=h=>Math.min(10,Math.floor(42/h));  // hands + two 5-card boards
+
+const fmt=v=>"$"+Math.round(Math.abs(v)).toLocaleString();
+const sfmt=v=>Math.round(v)===0?"$0":(v<0?"−$":"+$")+Math.round(Math.abs(v)).toLocaleString();
+const pct=v=>(100*v).toFixed(1)+"%";
+const cardStr=c=>RANKS[c>>2]+SUITS[c&3];
+function cardHTML(c,cls){
+  const s=cardStr(c);
+  return `<span class="card c${s[1]}${cls?" "+cls:""}">${s[0]==="T"?"10":s[0]}${SUIT[s[1]]}</span>`;
+}
+const backHTML=cls=>`<span class="card back${cls?" "+cls:""}">A♠</span>`;
+const NARROW=matchMedia("(max-width:700px)");
+
+const store={
+  get(k,d){try{const v=localStorage.getItem("cucaru."+k);return v?JSON.parse(v):d;}catch(e){return d;}},
+  set(k,v){try{localStorage.setItem("cucaru."+k,JSON.stringify(v));}catch(e){}}
+};
+let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"HERO"},store.get("cfg",{}));
+let show=Object.assign({odds:true,eq:true,cards:false},store.get("show",{}));
+const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
+let sess=Object.assign(freshSession(),store.get("sess",{}));
+if(sess.net.JAY!=null&&sess.net.HERO==null){sess.net.HERO=sess.net.JAY;delete sess.net.JAY;}
+const esc=t=>String(t).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
+const disp=s=>s===0?esc(cfg.name||"HERO"):NAMES[s];
+let G=null,timer=null;
+
+function newHand(){
+  clearTimeout(timer);
+  const n=Math.min(cfg.players,maxPlayers(cfg.hole)),H=cfg.hole,A=cfg.ante;
+  if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
+  const deck=shuffle([...Array(52).keys()]);
+  const hands=[];for(let s=0;s<n;s++)hands.push(deck.splice(0,H));
+  const flops=[deck.splice(0,3),deck.splice(0,3)];
+  const runs=[deck.splice(0,2),deck.splice(0,2)];  // dealt now, shown only at showdown
+  const labels=posLabels(n),pos=[];
+  for(let k=0;k<n;k++)pos[(sess.btn+k)%n]=labels[k];
+  const order=[];for(let k=1;k<=n;k++)order.push((sess.btn+k)%n);  // SB ... BTN
+  G={no:sess.hands+1,n,H,A,P0:n*A,btn:sess.btn,hands,flops,runs,pos,order,idx:0,
+     seat:Array.from({length:n},()=>({folded:false,in:false,act:null,won:0})),
+     pot:n*A,street:0,phase:"action",actor:null,hero:null,result:null};
+  for(let s=0;s<n;s++)sess.net[NAMES[s]]=(sess.net[NAMES[s]]||0)-A;
+  sess.hands++;
+  render();
+  timer=setTimeout(step,delay()*.6);
+}
+function delay(){return{normal:650,fast:220,instant:0}[cfg.speed]??650;}
+const live=()=>G.seat.map((s,i)=>i).filter(i=>!G.seat[i].folded);
+const potters=()=>G.seat.map((s,i)=>i).filter(i=>G.seat[i].in);
+
+function step(){
+  const L=live();
+  if(L.length===1||G.idx>=G.order.length)return finish();
+  const s=G.order[G.idx];G.actor=s;
+  if(s===0){G.phase="hero";G.hero=heroInfo();render();return;}
+  render();
+  timer=setTimeout(()=>{botAct(s);G.idx++;step();},delay());
+}
+function putIn(s){
+  G.seat[s].in=true;G.seat[s].act=["POT","hot"];G.pot+=G.P0;
+  sess.net[NAMES[s]]-=G.P0;
+}
+function fold(s){G.seat[s].folded=true;G.seat[s].act=["FOLD","fold"];}
+/* the bot rule: pot when equity against the live field (every player
+ * who has not folded, including those still to act) beats 1/live */
+function botAct(s){
+  const L=live().length;
+  const eq=eqField(G.hands[s],G.flops,L-1,1200);
+  if(eq>1/L)putIn(s);else fold(s);
+}
+function heroInfo(){
+  const k=potters().length,L=live().length;
+  return{k,L,eqLive:eqField(G.hands[0],G.flops,L-1,1500),
+    eqIn:k?eqField(G.hands[0],G.flops,k,1500):null,
+    need:1/(k+2),need1:1/(k+3),avg:1/L,potNow:G.pot};
+}
+function heroAct(pot){
+  if(!G||G.phase!=="hero")return;
+  G.hero.choice=pot?"POT":"FOLD";
+  sess.decisions++;if(pot)sess.potted++;
+  if(pot)putIn(0);else fold(0);
+  G.phase="action";G.idx++;G.actor=null;
+  render();
+  timer=setTimeout(step,delay()*.5);
+}
+function finish(){
+  G.actor=null;
+  const L=live();
+  if(L.length===1){  // uncontested: folded around, or one potter left
+    const w=L[0];G.seat[w].won=G.pot;G.seat[w].act=["WINS "+fmt(G.pot),"win"];
+    sess.net[NAMES[w]]+=G.pot;
+    G.result={uncontested:true,boards:null};
+    return done();
+  }
+  G.phase="runout";render();
+  const d=Math.max(delay(),cfg.speed==="instant"?0:450);
+  timer=setTimeout(()=>{G.street=1;render();
+    timer=setTimeout(()=>{G.street=2;showdown();},d);},d);
+}
+function showdown(){
+  const L=live(),half=G.pot/2,boards=[];
+  for(let b=0;b<2;b++){
+    const full=G.flops[b].concat(G.runs[b]);
+    const sc=L.map(s=>evalPLO(G.hands[s],full)),best=Math.max(...sc);
+    const win=L.filter((s,i)=>sc[i]===best);
+    win.forEach(s=>{G.seat[s].won+=half/win.length;});
+    boards.push({win,cat:catOf(best)});
+  }
+  L.forEach(s=>{
+    const w=G.seat[s].won;sess.net[NAMES[s]]+=w;
+    G.seat[s].act=w>0?["WINS "+fmt(w),"win"]:["LOSES","fold"];
+  });
+  // everyone's true flop equity: all hole cards are out of the deck
+  const dead=[].concat(...G.hands);
+  const eq=eqExact(L.map(s=>G.hands[s]),G.flops,dead);
+  G.result={uncontested:false,boards,eq:Object.fromEntries(L.map((s,i)=>[s,eq[i]]))};
+  done();
+}
+function done(){
+  G.phase="done";
+  const h=G.hero,me=G.seat[0],net=me.won-G.A-(me.in?G.P0:0);
+  // EV-adjusted result: a hand that went to showdown is scored at its
+  // true flop equity, so the running total separates decisions from luck
+  let ev=net;
+  if(me.in&&G.result.eq&&G.result.eq[0]!=null)ev=G.result.eq[0]*G.pot-G.A-G.P0;
+  sess.ev+=ev;
+  // hero folded into a showdown: what the hand was worth against the
+  // hands that went in (approximate: they chose with hero out of the field)
+  if(h&&!me.in&&!G.result.uncontested){
+    const L=live(),hs=[G.hands[0]].concat(L.map(s=>G.hands[s]));
+    const e=eqExact(hs,G.flops,[].concat(...G.hands));
+    G.result.foldEq=e[0];G.result.foldNeed=1/(L.length+2);
+  }
+  sess.log.unshift({no:G.no,pos:G.pos[0],cards:G.hands[0],play:h?h.choice:"—",
+    eqLive:h?h.eqLive:null,need:h?h.need:null,
+    trueEq:me.in&&G.result.eq?G.result.eq[0]:(G.result.foldEq??null),
+    net,ev,field:h?h.L:null});
+  sess.log=sess.log.slice(0,60);
+  store.set("sess",sess);
+  render();
+}
+
+/* ================= view ================= */
+function seatXY(k,n){  // same ring as the replayer: hero bottom, clockwise
+  const a=Math.PI/2+k/n*2*Math.PI;
+  return NARROW.matches?[50+33*Math.cos(a),50+38.5*Math.sin(a)]:
+    [50+43.5*Math.cos(a),49+40*Math.sin(a)];
+}
+function betXY(x,y){return[50+(x-50)*.52,47+(y-47)*.47];}
+
+function stageHTML(){
+  let html=`<div class="felt"></div>`;
+  if(!G)return html;
+  const phaseName={action:"Flop action",hero:"Your decision",runout:"Running it out",done:"Result"}[G.phase];
+  html+=`<div class="stamp">Hand <b>#${G.no}</b><span class="xtra"> · PLO${G.H} · <b>${fmt(G.A)}</b> ante · ${G.n}-handed</span> · <b>${phaseName}</b></div>`;
+  html+=`<div class="badges"><span class="badge">double board</span><span class="badge">pot or fold</span></div>`;
+  html+=`<div class="wordmark">Cucaru</div>`;
+  // boards: the flop, then turn and river slots that fill at showdown
+  const upto=G.phase==="done"&&G.result.uncontested?3:3+G.street;
+  let boards="";
+  ["TOP","BOT"].forEach((lbl,b)=>{
+    const cs=G.flops[b].concat(G.runs[b]);
+    const won=G.result&&G.result.boards&&G.result.boards[b].win.includes(0);
+    boards+=`<div class="board${won?" won":""}"><span class="lbl">${lbl}</span>`+
+      cs.map((c,i)=>i<upto?cardHTML(c,i===3?"gap":""):backHTML("slot"+(i===3?" gap":""))).join("")+`</div>`;
+  });
+  let notes="";
+  if(G.phase==="done"&&G.result.boards){
+    G.result.boards.forEach((r,b)=>{notes+=`<div class="potnote">${b?"BOT":"TOP"} · ${r.win.map(disp).join(", ")}${r.win.length>1?" split":""} · ${r.cat}</div>`;});
+  }else if(G.phase==="done"){
+    const w=live()[0];
+    notes+=`<div class="potnote">${disp(w)} takes it uncontested</div>`;
+  }else{
+    notes+=`<div class="potnote dimn">to play: ${fmt(G.P0)} · ${potters().length} in</div>`;
+    if(G.phase==="hero"&&show.odds){
+      const h=G.hero;
+      notes+=`<div class="potnote">pot odds: ${fmt(G.P0)} to win ${fmt(h.potNow)} · need ${pct(h.need)}</div>`;
+    }
+  }
+  html+=`<div class="center">${boards}<div class="pot">POT <b>${fmt(G.pot)}</b></div>${notes}</div>`;
+  for(let k=0;k<G.n;k++){
+    const s=k,[x,y]=seatXY(k,G.n),st=G.seat[s],hero=s===0;
+    const reveal=hero||show.cards||(G.phase==="done"&&!G.result.uncontested&&st.in&&!st.folded);
+    const cards=G.hands[s].map(c=>reveal?cardHTML(c):backHTML()).join("");
+    let eqv="";
+    if(G.phase==="done"&&G.result.eq&&G.result.eq[s]!=null)eqv=`<span class="eqp">${Math.round(G.result.eq[s]*100)}%</span>`;
+    else if(hero&&G.phase==="hero"&&show.eq)eqv=`<span class="eqp">${Math.round(G.hero.eqLive*100)}%</span>`;
+    const net=sess.net[NAMES[s]]||0;
+    html+=`<div class="seat${hero?" hero":""}${st.folded?" folded":""}${G.actor===s?" acting":""}${st.won>0&&G.phase==="done"?" won":""}" style="left:${x}%;top:${y}%">`+
+      `<div class="cards">${cards}</div>`+
+      `<div class="plate"><div class="nm">${disp(s)}<span class="posn">${G.pos[s]}</span>${eqv}</div>`+
+      `<div class="stk"><span class="${net>0?"up":net<0?"dn":""}">${sfmt(net)}</span></div></div>`+
+      (st.act?`<div><span class="act ${st.act[1]}">${st.act[0]}</span></div>`:"")+`</div>`;
+    const [bx,by]=betXY(x,y);
+    if(st.in)html+=`<div class="bet" style="left:${bx}%;top:${by}%">${fmt(G.P0)}</div>`;
+    if(s===G.btn){
+      const t=Math.atan2(y-47,x-50)+Math.PI/2;
+      html+=`<div class="dbtn" style="left:${bx+5*Math.cos(t)}%;top:${by+5*Math.sin(t)}%">D</div>`;
+    }
+  }
+  return html;
+}
+
+function infoHTML(){
+  if(!G)return`<div class="msg">Deal a hand to start.</div>`;
+  if(G.phase==="hero"){
+    const h=G.hero,rows=[];
+    if(show.eq){
+      const cls=h.eqLive>h.avg?"good":"bad";
+      rows.push(`<div class="row"><span class="k">Equity</span><b class="${cls}">${pct(h.eqLive)}</b>`+
+        `<span class="msg">vs ${h.L-1} live · average share ${pct(h.avg)}</span></div>`);
+      if(h.eqIn!=null)rows.push(`<div class="row"><span class="k"></span><b>${pct(h.eqIn)}</b>`+
+        `<span class="msg">vs the ${h.k} already in</span></div>`);
+    }
+    if(show.odds)rows.push(`<div class="row"><span class="k">Pot odds</span><b>${pct(h.need)}</b>`+
+      `<span class="msg">${fmt(G.P0)} to win ${fmt(h.potNow)} · ${pct(h.need1)} if one more comes in</span></div>`);
+    if(!rows.length)rows.push(`<div class="msg">Your call. Pot odds and equity are hidden.</div>`);
+    return rows.join("");
+  }
+  if(G.phase!=="done"){
+    return`<div class="msg">${G.phase==="runout"?"Dealing the turns and rivers…":
+      G.actor!=null?disp(G.actor)+" ("+G.pos[G.actor]+") is deciding…":"…"}</div>`;
+  }
+  const e=sess.log[0],rows=[];
+  const res=`<b class="${e.net>=0?"good":"bad"}">${sfmt(e.net)}</b>`;
+  if(e.play==="—"){
+    rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">${G.seat[0].won?"folded around to you":"hand ended before your turn"}</span></div>`);
+  }else if(e.play==="POT"){
+    rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you potted with ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
+    if(!G.result.uncontested)rows.push(`<div class="row"><span class="k">Flop eq</span><b>${pct(e.trueEq)}</b>`+
+      `<span class="msg">against the hands that went in · EV ${sfmt(e.ev)}</span></div>`);
+  }else{
+    rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you folded ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
+    if(G.result.foldEq!=null)rows.push(`<div class="row"><span class="k">If potted</span><b>${pct(G.result.foldEq)}</b>`+
+      `<span class="msg">against the hands that went in · would have needed ${pct(G.result.foldNeed)}</span></div>`);
+  }
+  return rows.join("");
+}
+
+function sessionHTML(){
+  const hn=sess.net.HERO||0;
+  const tile=(k,v,cls)=>`<div class="tile"><div class="k">${k}</div><div class="v ${cls||""}">${v}</div></div>`;
+  const ud=v=>v>0?"up":v<0?"dn":"";
+  return tile("Hands",sess.hands)+tile("Net",sfmt(hn),ud(hn))+
+    tile("EV-adjusted",sfmt(sess.ev),ud(sess.ev))+
+    tile("Potted",sess.decisions?Math.round(100*sess.potted/sess.decisions)+"%":"—");
+}
+function logHTML(){
+  if(!sess.log.length)return`<tr><td class="dim" colspan="9">No hands yet.</td></tr>`;
+  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th></tr>`;
+  return head+sess.log.slice(0,25).map(e=>{
+    const ud=v=>v>0?"up":v<0?"dn":"";
+    return`<tr><td class="dim">${e.no}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
+      `<td>${e.play}</td><td>${e.eqLive!=null?pct(e.eqLive):"—"}</td>`+
+      `<td class="dim">${e.need!=null?pct(e.need):"—"}</td>`+
+      `<td>${e.trueEq!=null?pct(e.trueEq):"—"}</td>`+
+      `<td class="${ud(e.net)}">${sfmt(e.net)}</td><td class="${ud(e.ev)}">${sfmt(e.ev)}</td></tr>`;
+  }).join("");
+}
+
+const $=id=>document.getElementById(id);
+function render(){
+  $("stage").innerHTML=stageHTML();
+  $("info").innerHTML=infoHTML();
+  const my=G&&G.phase==="hero";
+  $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
+  $("potAmt").textContent=G?"put in "+fmt(G.P0):" ";
+  $("dealBtn").disabled=!!G&&G.phase!=="done";
+  $("session").innerHTML=sessionHTML();
+  $("log").innerHTML=logHTML();
+}
+function syncControls(){
+  const mp=maxPlayers(cfg.hole);
+  if(cfg.players>mp)cfg.players=mp;
+  $("cfgPlayers").innerHTML=Array.from({length:mp-1},(_,i)=>i+2)
+    .map(n=>`<option value="${n}"${n===cfg.players?" selected":""}>${n}</option>`).join("");
+  $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;
+  $("togOdds").setAttribute("aria-pressed",show.odds);
+  $("togEq").setAttribute("aria-pressed",show.eq);
+  $("togCards").setAttribute("aria-pressed",show.cards);
+  store.set("cfg",cfg);store.set("show",show);
+}
+$("potBtn").onclick=()=>heroAct(true);
+$("foldBtn").onclick=()=>heroAct(false);
+$("dealBtn").onclick=()=>{if(!G||G.phase==="done")newHand();};
+[["togOdds","odds"],["togEq","eq"],["togCards","cards"]].forEach(([id,k])=>{
+  $(id).onclick=()=>{show[k]=!show[k];syncControls();render();};
+});
+$("cfgPlayers").onchange=e=>{cfg.players=+e.target.value;syncControls();};
+$("cfgHole").onchange=e=>{cfg.hole=+e.target.value;syncControls();};
+$("cfgAnte").onchange=e=>{cfg.ante=Math.max(1,Math.round(+e.target.value||200));syncControls();};
+$("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12)||"HERO";store.set("cfg",cfg);render();};
+$("cfgSpeed").onchange=e=>{cfg.speed=e.target.value;syncControls();};
+$("resetBtn").onclick=()=>{sess=freshSession();store.set("sess",sess);render();};
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,select,textarea")||e.metaKey||e.ctrlKey)return;
+  const k=e.key.toLowerCase();
+  if(k==="p")heroAct(true);
+  else if(k==="f")heroAct(false);
+  else if(k==="n"||k===" "){if(!G||G.phase==="done"){e.preventDefault();newHand();}}
+});
+NARROW.addEventListener("change",render);
+syncControls();
+newHand();
+</script>
