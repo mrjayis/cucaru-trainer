@@ -146,6 +146,9 @@ input[type=text]{width:120px;text-transform:uppercase}
 button{cursor:pointer;font-weight:600}
 button:hover,.bigbtn:hover:not(:disabled){border-color:var(--accent)}
 .bigbtn.potb:hover:not(:disabled){filter:brightness(1.08)}
+a.calc{color:var(--blue);font-size:13.5px;font-weight:600;text-decoration:none;
+  border:1px solid var(--line);border-radius:6px;padding:5px 10px;background:var(--panel)}
+a.calc:hover{border-color:var(--blue)}
 .tog{border-radius:14px;padding:4px 12px;color:var(--ink-3)}
 .tog[aria-pressed="true"]{color:var(--accent);border-color:var(--accent);
   background:var(--chip)}
@@ -242,6 +245,7 @@ field beats the average share.</div>
 
 <div class="controls">
   <button id="dealBtn">Deal next hand ▸</button>
+  <a class="calc" id="calcLink" target="_blank" rel="noopener">⚖ Open in DBBP calculator</a>
   <button class="tog" id="togAuto" aria-pressed="false" title="deal the next hand as soon as this one ends">Auto-deal</button>
   <span class="sep"></span>
   <button class="tog" id="togOdds" aria-pressed="true">Pot odds</button>
@@ -726,12 +730,38 @@ function logHTML(){
 }
 
 const $=id=>document.getElementById(id);
+/* the same spot in the DBBP equity calculator, through its URL-hash
+ * loader: seats (exact cards), rN (raw seat text, here Xx wildcards for
+ * a hand you can't see), a/b (the two flops), cards (PLO4/5/6), run=1.
+ * Live hand: you plus every player still in, their cards only when
+ * "Bot cards" is on. Finished showdown: the hands that went in, plus
+ * yours if you folded. */
+const CALC="https://mrjayis.github.io/plo-dbbp-equity-calculator/";
+function calcLink(){
+  if(!G)return null;
+  const showdown=G.phase==="done"&&!G.result.uncontested;
+  let ids=G.phase==="done"&&G.result.uncontested?G.seat.map((_,i)=>i):live();
+  if(!ids.includes(0))ids=[0].concat(ids);
+  ids=[0].concat(ids.filter(i=>i!==0));
+  const seats=[],q=[];
+  ids.forEach((s,k)=>{
+    if(s===0||showdown||show.cards)seats.push(G.hands[s].map(cardStr).join(""));
+    else{seats.push("-");q.push(`r${k+1}=`+encodeURIComponent(Array(G.H).fill("Xx").join(" ")));}
+  });
+  const fl=b=>G.flops[b].map(cardStr).join("");
+  return CALC+`#cards=${G.H}&n=${ids.length}&seats=${seats.join(",")}`+
+    (q.length?"&"+q.join("&"):"")+`&a=${fl(0)}&b=${fl(1)}&run=1`;
+}
 function render(){
   $("stage").innerHTML=stageHTML();
   $("info").innerHTML=infoHTML();
   const my=G&&G.phase==="hero";
   $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
   $("potAmt").textContent=G?"put in "+fmt(G.P0):" ";
+  const cl=calcLink();$("calcLink").hidden=!cl;if(cl)$("calcLink").href=cl;
+  $("calcLink").title=G&&G.phase==="done"&&!G.result.uncontested?
+    "the hands that went in, on both flops":
+    "your hand vs everyone still in, on both flops (their cards random unless Bot cards is on)";
   $("session").innerHTML=sessionHTML();
   $("log").innerHTML=logHTML();
 }
