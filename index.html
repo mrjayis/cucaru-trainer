@@ -563,6 +563,9 @@ function showdown(){
   const dead=[].concat(...G.hands);
   const eq=eqExact(L.map(s=>G.hands[s]),G.flops,dead);
   G.result={uncontested:false,boards,eq:Object.fromEntries(L.map((s,i)=>[s,eq[i]]))};
+  // hero's own number is judged on what hero could know: random hands,
+  // one per opponent who went in
+  if(G.seat[0].in)G.result.heroEq=eqField(G.hands[0],G.flops,L.length-1,5000);
   done();
 }
 function done(){
@@ -573,16 +576,15 @@ function done(){
   let ev=net;
   if(me.in&&G.result.eq&&G.result.eq[0]!=null)ev=G.result.eq[0]*G.pot-G.A-G.P0;
   sess.ev+=ev;
-  // hero folded into a showdown: what the hand was worth against the
-  // hands that went in (approximate: they chose with hero out of the field)
+  // hero folded into a showdown: what the hand was worth against as many
+  // random hands as went in
   if(h&&!me.in&&!G.result.uncontested){
-    const L=live(),hs=[G.hands[0]].concat(L.map(s=>G.hands[s]));
-    const e=eqExact(hs,G.flops,[].concat(...G.hands));
-    G.result.foldEq=e[0];G.result.foldNeed=1/(L.length+2);
+    const L=live();
+    G.result.foldEq=eqField(G.hands[0],G.flops,L.length,5000);G.result.foldNeed=1/(L.length+2);
   }
   sess.log.unshift({no:G.no,pos:G.pos[0],cards:G.hands[0],play:h?h.choice:"—",
     eqLive:h?h.eqLive:null,need:h?h.need:null,
-    trueEq:me.in&&G.result.eq?G.result.eq[0]:(G.result.foldEq??null),
+    trueEq:me.in?(G.result.heroEq??null):(G.result.foldEq??null),
     net,ev,field:h?h.L:null});
   sess.log=sess.log.slice(0,60);
   store.set("sess",sess);
@@ -642,7 +644,8 @@ function stageHTML(){
     const reveal=hero||show.cards||(G.phase==="done"&&!G.result.uncontested&&st.in&&!st.folded);
     const cards=G.hands[s].map(c=>reveal?cardHTML(c):backHTML()).join("");
     let eqv="";
-    if(G.phase==="done"&&G.result.eq&&G.result.eq[s]!=null)eqv=`<span class="eqp">${Math.round(G.result.eq[s]*100)}%</span>`;
+    if(G.phase==="done"&&hero&&G.result.heroEq!=null)eqv=`<span class="eqp">${Math.round(G.result.heroEq*100)}%</span>`;
+    else if(G.phase==="done"&&G.result.eq&&G.result.eq[s]!=null)eqv=`<span class="eqp">${Math.round(G.result.eq[s]*100)}%</span>`;
     else if(hero&&G.phase==="hero"&&show.eq)eqv=`<span class="eqp">${Math.round(G.hero.eqLive*100)}%</span>`;
     const net=sess.net[NAMES[s]]||0;
     html+=`<div class="seat${hero?" hero":""}${st.folded?" folded":""}${G.actor===s?" acting":""}${st.won>0&&G.phase==="done"?" won":""}" style="left:${x}%;top:${y}%">`+
@@ -699,11 +702,11 @@ function infoHTML(){
   }else if(e.play==="POT"){
     rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you potted with ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
     if(!G.result.uncontested)rows.push(`<div class="row"><span class="k">Flop eq</span><b>${pct(e.trueEq)}</b>`+
-      `<span class="msg">against the hands that went in · EV ${sfmt(e.ev)}</span></div>`);
+      `<span class="msg">vs ${live().length-1} random hand${live().length>2?"s":""} (the number that went in) · EV ${sfmt(e.ev)} on the actual hands</span></div>`);
   }else{
     rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you folded ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
     if(G.result.foldEq!=null)rows.push(`<div class="row"><span class="k">If potted</span><b>${pct(G.result.foldEq)}</b>`+
-      `<span class="msg">against the hands that went in · would have needed ${pct(G.result.foldNeed)}</span></div>`);
+      `<span class="msg">vs ${live().length} random hand${live().length>1?"s":""} (the number that went in) · would have needed ${pct(G.result.foldNeed)}</span></div>`);
   }
   return rows.join("");
 }
