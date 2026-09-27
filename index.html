@@ -233,7 +233,9 @@ td.dim{color:var(--ink-3)}
 and each player gets one decision: put in the pot or fold. Action starts
 in the small blind and ends on the button; there is no betting on the
 turn or river. The bots put money in when their equity against the live
-field beats the average share.</div>
+field beats the average share, asking a little more in early position with
+many players still to act, or when the pot odds are good enough against the
+players already in.</div>
 
 <div class="stage" id="stage"></div>
 
@@ -257,6 +259,9 @@ field beats the average share.</div>
   <label class="set">Position <select id="cfgSeat"></select></label>
   <label class="set">Cards <select id="cfgHole">
     <option value="4">PLO4</option><option value="5">PLO5</option><option value="6">PLO6</option></select></label>
+  <label class="set">Bots <select id="cfgBots">
+    <option value="tight">Tight</option><option value="standard">Standard</option>
+    <option value="loose">Loose</option><option value="classic">Classic</option></select></label>
   <label class="set">Ante $ <input type="number" id="cfgAnte" min="1" step="25" value="200"></label>
   <label class="set">Speed <select id="cfgSpeed">
     <option value="normal">Normal</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
@@ -268,7 +273,13 @@ the share of the final pot you need to win if nobody behind you comes in.
 When no one has put money in yet, it's the price against one caller, since
 if everyone folds you take the antes.
 <b>My equity</b> is your share of both boards against random hands, sampled
-from what you can actually see (your cards and the two flops).</div>
+from what you can actually see (your cards and the two flops).
+<b>Bots</b>: Standard asks 3% more than the average share for each player
+still to act, and also pots when its equity against the players already in
+(plus about a third of those behind) beats the pot odds, with the bar raised
+40% per player in, since their hands are better than random. Tight asks 12%
+more on both tests, Loose 10% less. Classic is the old rule: average share
+of the live field, nothing else.</div>
 
 <div class="session" id="session"></div>
 <div class="loghead"><h2>Your hands</h2><button id="resetBtn">Reset session</button></div>
@@ -442,7 +453,7 @@ const store={
   get(k,d){try{const v=localStorage.getItem("cucaru."+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){try{localStorage.setItem("cucaru."+k,JSON.stringify(v));}catch(e){}}
 };
-let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate"},store.get("cfg",{}));
+let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate",bots:"standard"},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
 let show=Object.assign({odds:true,eq:true,cards:false,auto:false},store.get("show",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
@@ -465,7 +476,7 @@ function newHand(){
   const labels=posLabels(n),pos=[];
   for(let k=0;k<n;k++)pos[(sess.btn+k)%n]=labels[k];
   const order=[];for(let k=1;k<=n;k++)order.push((sess.btn+k)%n);  // SB ... BTN
-  G={no:sess.hands+1,n,H,A,P0:n*A,btn:sess.btn,hands,flops,runs,pos,order,idx:0,
+  G={no:sess.hands+1,n,H,A,P0:n*A,btn:sess.btn,bots:cfg.bots,hands,flops,runs,pos,order,idx:0,
      seat:Array.from({length:n},()=>({folded:false,in:false,act:null,won:0})),
      pot:n*A,street:0,phase:"action",actor:null,hero:null,result:null};
   for(let s=0;s<n;s++)sess.net[NAMES[s]]=(sess.net[NAMES[s]]||0)-A;
@@ -509,12 +520,30 @@ function putIn(s){
   sess.net[NAMES[s]]-=G.P0;
 }
 function fold(s){G.seat[s].folded=true;G.seat[s].act=["FOLD","fold"];}
-/* the bot rule: pot when equity against the live field (every player
- * who has not folded, including those still to act) beats 1/live */
+/* the bot rule. Classic: pot when equity against the live field (every
+ * player who has not folded, including those still to act) beats 1/live.
+ * The styles ask 3% more of that per player still to act, and add a pot-odds
+ * test once someone is in: equity against the potters plus the callers
+ * expected behind (~35%, about the pot rate) must beat 1/(m+2), the price
+ * of an m-way pot with the antes as one more bet, raised 40% per potter
+ * because their hands are stronger than random. The style factor scales
+ * both bars. */
+const BOT_STYLE={tight:1.12,standard:1,loose:.9};
 function botAct(s){
-  const L=live().length;
+  const L=live().length,k=potters().length,behind=G.order.length-1-G.idx;
   const eq=eqField(G.hands[s],G.flops,L-1,1200);
-  if(eq>1/L)putIn(s);else fold(s);
+  let pot;
+  if(G.bots==="classic")pot=eq>1/L;
+  else{
+    const f=BOT_STYLE[G.bots]??1;
+    pot=eq>f*(1+.03*behind)/L;
+    if(!pot&&k){
+      const m=k+Math.round(.35*behind);
+      const eqO=m===L-1?eq:eqField(G.hands[s],G.flops,m,1200);
+      pot=eqO>f*(1+.4*k)/(m+2);
+    }
+  }
+  if(pot)putIn(s);else fold(s);
 }
 function heroInfo(){
   const k=potters().length,L=live().length;
@@ -778,7 +807,7 @@ function syncControls(){
   if(!seats.includes(cfg.seat))cfg.seat="rotate";
   $("cfgSeat").innerHTML=[["rotate","Rotating"]].concat(seats.map(x=>[x,x]))
     .map(([v,t])=>`<option value="${v}"${v===cfg.seat?" selected":""}>${t}</option>`).join("");
-  $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;
+  $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;$("cfgBots").value=cfg.bots;
   $("togOdds").setAttribute("aria-pressed",show.odds);
   $("togEq").setAttribute("aria-pressed",show.eq);
   $("togCards").setAttribute("aria-pressed",show.cards);
@@ -797,6 +826,7 @@ $("cfgHole").onchange=e=>{cfg.hole=+e.target.value;syncControls();};
 $("cfgAnte").onchange=e=>{cfg.ante=Math.max(1,Math.round(+e.target.value||200));syncControls();};
 $("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12)||"JAY";store.set("cfg",cfg);render();};
 $("cfgSpeed").onchange=e=>{cfg.speed=e.target.value;syncControls();};
+$("cfgBots").onchange=e=>{cfg.bots=e.target.value;syncControls();};
 $("resetBtn").onclick=()=>{sess=freshSession();store.set("sess",sess);render();};
 document.addEventListener("keydown",e=>{
   if(e.target.matches("input,select,textarea")||e.metaKey||e.ctrlKey)return;
