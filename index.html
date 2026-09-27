@@ -156,7 +156,7 @@ label.set{display:flex;align-items:center;gap:6px;font-size:12.5px;color:var(--i
 .sep{width:1px;align-self:stretch;background:var(--line)}
 
 /* ---- session ---- */
-.session{margin-top:22px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));
+.session{margin-top:22px;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));
   gap:10px}
 .tile{background:var(--panel);border:1px solid var(--line);border-radius:8px;
   padding:8px 12px}
@@ -279,7 +279,13 @@ still to act, and also pots when its equity against the players already in
 (plus about a third of those behind) beats the pot odds, with the bar raised
 40% per player in, since their hands are better than random. Tight asks 12%
 more on both tests, Loose 10% less. Classic is the old rule: average share
-of the live field, nothing else.</div>
+of the live field, nothing else.
+<b>EV</b> scores each decision on what you could know when you made it, not on
+the turn, river or the cards they held: a pot that went to showdown counts at
+your equity against as many random hands as went in, a pot everyone folded to
+counts what it won, a fold counts the ante. <b>Edge</b> is how much better
+your choice was than the other one (for a fold, the bots behind are asked what
+they would have done had you potted); <b>Mistakes</b> adds up the negative edges.</div>
 
 <div class="session" id="session"></div>
 <div class="loghead"><h2>Your hands</h2><button id="resetBtn">Reset session</button></div>
@@ -456,8 +462,11 @@ const store={
 let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate",bots:"standard"},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
 let show=Object.assign({odds:true,eq:true,cards:false,auto:false},store.get("show",{}));
-const freshSession=()=>({hands:0,net:{},ev:0,potted:0,decisions:0,log:[],btn:0});
+const freshSession=()=>({hands:0,net:{},ev:0,lost:0,potted:0,decisions:0,log:[],btn:0,evv:2});
 let sess=Object.assign(freshSession(),store.get("sess",{}));
+// sessions saved before EV scored decisions: the old EV total meant
+// something else, so it starts again from zero
+if(sess.evv!==2){sess.ev=0;sess.lost=0;sess.evv=2;}
 if(sess.net.JAY!=null&&sess.net.HERO==null){sess.net.HERO=sess.net.JAY;delete sess.net.JAY;}
 const esc=t=>String(t).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
 const disp=s=>s===0?esc(cfg.name||"JAY"):NAMES[s];
@@ -495,7 +504,7 @@ function step(){
     const s=G.order[G.idx];G.actor=s;
     if(rush){
       if(s===0){
-        if(G.hero){G.hero.choice="FOLD";sess.decisions++;}
+        if(G.hero){G.hero.choice="FOLD";sess.decisions++;potAlt();}
         else G.hero={choice:"SKIP",eqLive:null,need:null,L:null};
         fold(0);
       }else botAct(s);
@@ -530,7 +539,10 @@ function fold(s){G.seat[s].folded=true;G.seat[s].act=["FOLD","fold"];}
  * both bars. */
 const BOT_STYLE={tight:1.12,standard:1,loose:.9};
 function botAct(s){
-  const L=live().length,k=potters().length,behind=G.order.length-1-G.idx;
+  if(botWants(s,live().length,potters().length,G.order.length-1-G.idx))putIn(s);else fold(s);
+}
+/* L live players, k already in, behind still to act after s */
+function botWants(s,L,k,behind){
   const eq=eqField(G.hands[s],G.flops,L-1,1200);
   let pot;
   if(G.bots==="classic")pot=eq>1/L;
@@ -543,7 +555,20 @@ function botAct(s){
       pot=eqO>f*(1+.4*k)/(m+2);
     }
   }
-  if(pot)putIn(s);else fold(s);
+  return pot;
+}
+/* hero is folding: what potting would have been worth. The bots behind
+ * are asked what they would have done with hero in (their real rule, on
+ * their real cards); the pot is then priced like a potted hand, against
+ * as many random hands as would have been in, or as the antes if every
+ * one of them would have folded */
+function potAlt(){
+  let L=live().length,k=potters().length+1;
+  const rest=G.order.slice(G.idx+1);
+  rest.forEach((s,i)=>{if(botWants(s,L,k,rest.length-1-i))k++;else L--;});
+  const opp=k-1,pot=G.pot+k*G.P0-potters().length*G.P0;
+  const eq=opp?eqField(G.hands[0],G.flops,opp,5000):1;
+  G.hero.alt={opp,pot,eq,ev:eq*pot-G.A-G.P0};
 }
 function heroInfo(){
   const k=potters().length,L=live().length;
@@ -555,6 +580,7 @@ function heroAct(pot){
   if(!G||G.phase!=="hero")return;
   G.hero.choice=pot?"POT":"FOLD";
   sess.decisions++;if(pot)sess.potted++;
+  if(!pot)potAlt();
   if(pot)putIn(0);else fold(0);
   G.phase="action";G.idx++;G.actor=null;
   render();
@@ -603,21 +629,27 @@ function showdown(){
 function done(){
   G.phase="done";
   const h=G.hero,me=G.seat[0],net=me.won-G.A-(me.in?G.P0:0);
-  // EV-adjusted result: a hand that went to showdown is scored at its
-  // true flop equity, so the running total separates decisions from luck
-  let ev=net;
-  if(me.in&&G.result.eq&&G.result.eq[0]!=null)ev=G.result.eq[0]*G.pot-G.A-G.P0;
-  sess.ev+=ev;
-  // hero folded into a showdown: what the hand was worth against as many
-  // random hands as went in
-  if(h&&!me.in&&!G.result.uncontested){
-    const L=live();
-    G.result.foldEq=eqField(G.hands[0],G.flops,L.length,5000);G.result.foldNeed=1/(L.length+2);
+  // decision EV: each choice is scored on what hero could know (own cards,
+  // the flops, how many went in), not on the run-out or the cards they held.
+  // Potted to a showdown: equity vs that many random hands x the pot.
+  // Potted and everyone folded: what it won. Folded: the ante.
+  // edge = EV of the choice minus EV of the other one; for a fold, potting
+  // is priced as the same players in, plus hero's bet in the pot.
+  let ev=net,edge=null;
+  if(h&&h.choice==="POT"){
+    if(G.result.heroEq!=null)ev=G.result.heroEq*G.pot-G.A-G.P0;
+    edge=ev+G.A;
+  }else if(h&&h.choice==="FOLD"&&h.alt){
+    const a=h.alt;
+    G.result.foldEq=a.opp?a.eq:null;G.result.foldNeed=G.P0/a.pot;
+    edge=-G.A-a.ev;
   }
+  sess.ev+=ev;
+  if(edge!=null&&edge<0)sess.lost+=edge;
   sess.log.unshift({no:G.no,pos:G.pos[0],cards:G.hands[0],play:h?h.choice:"—",
     eqLive:h?h.eqLive:null,need:h?h.need:null,
     trueEq:me.in?(G.result.heroEq??null):(G.result.foldEq??null),
-    net,ev,field:h?h.L:null});
+    net,ev,edge,field:h?h.L:null});
   sess.log=sess.log.slice(0,60);
   store.set("sess",sess);
   if(rush||show.auto){rush=false;return newHand();}
@@ -733,11 +765,21 @@ function infoHTML(){
   }else if(e.play==="POT"){
     rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you potted with ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
     if(!G.result.uncontested)rows.push(`<div class="row"><span class="k">Flop eq</span><b>${pct(e.trueEq)}</b>`+
-      `<span class="msg">vs ${live().length-1} random hand${live().length>2?"s":""} (the number that went in) · EV ${sfmt(e.ev)} on the actual hands</span></div>`);
+      `<span class="msg">vs ${live().length-1} random hand${live().length>2?"s":""} (the number that went in) · EV ${sfmt(e.ev)}</span></div>`);
   }else{
     rows.push(`<div class="row"><span class="k">Result</span>${res}<span class="msg">you folded ${pct(e.eqLive)} vs the field (needed ${pct(e.need)})</span></div>`);
-    if(G.result.foldEq!=null)rows.push(`<div class="row"><span class="k">If potted</span><b>${pct(G.result.foldEq)}</b>`+
-      `<span class="msg">vs ${live().length} random hand${live().length>1?"s":""} (the number that went in) · would have needed ${pct(G.result.foldNeed)}</span></div>`);
+    const a=G.hero&&G.hero.alt;
+    if(a&&a.opp)rows.push(`<div class="row"><span class="k">If potted</span><b>${pct(a.eq)}</b>`+
+      `<span class="msg">vs ${a.opp} random hand${a.opp>1?"s":""} (${a.opp} would have been in) · would have needed ${pct(G.result.foldNeed)}</span></div>`);
+    else if(a)rows.push(`<div class="row"><span class="k">If potted</span><b class="good">${sfmt(a.ev)}</b>`+
+      `<span class="msg">everyone behind would have folded</span></div>`);
+  }
+  if(e.edge!=null){
+    const a=fmt(e.edge),pot=e.play==="POT";
+    const why=e.edge>=0?(pot?`potting was worth ${a} more than folding`:`folding saved ${a} over potting`):
+      (pot?`folding would have lost ${a} less`:`potting was worth ${a} more`);
+    rows.push(`<div class="row"><span class="k">Decision</span><b class="${e.edge>=0?"good":"bad"}">${sfmt(e.edge)}</b>`+
+      `<span class="msg">${why}</span></div>`);
   }
   return rows.join("");
 }
@@ -747,19 +789,21 @@ function sessionHTML(){
   const tile=(k,v,cls)=>`<div class="tile"><div class="k">${k}</div><div class="v ${cls||""}">${v}</div></div>`;
   const ud=v=>v>0?"up":v<0?"dn":"";
   return tile("Hands",sess.hands)+tile("Net",sfmt(hn),ud(hn))+
-    tile("EV-adjusted",sfmt(sess.ev),ud(sess.ev))+
+    tile("EV",sfmt(sess.ev),ud(sess.ev))+
+    tile("Mistakes",sess.lost?sfmt(sess.lost):"$0",ud(sess.lost))+
     tile("Potted",sess.decisions?Math.round(100*sess.potted/sess.decisions)+"%":"—");
 }
 function logHTML(){
-  if(!sess.log.length)return`<tr><td class="dim" colspan="9">No hands yet.</td></tr>`;
-  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th></tr>`;
+  if(!sess.log.length)return`<tr><td class="dim" colspan="10">No hands yet.</td></tr>`;
+  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th><th>Edge</th></tr>`;
   return head+sess.log.slice(0,25).map(e=>{
     const ud=v=>v>0?"up":v<0?"dn":"";
     return`<tr><td class="dim">${e.no}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
       `<td>${e.play}</td><td>${e.eqLive!=null?pct(e.eqLive):"—"}</td>`+
       `<td class="dim">${e.need!=null?pct(e.need):"—"}</td>`+
       `<td>${e.trueEq!=null?pct(e.trueEq):"—"}</td>`+
-      `<td class="${ud(e.net)}">${sfmt(e.net)}</td><td class="${ud(e.ev)}">${sfmt(e.ev)}</td></tr>`;
+      `<td class="${ud(e.net)}">${sfmt(e.net)}</td><td class="${ud(e.ev)}">${sfmt(e.ev)}</td>`+
+      `<td class="${e.edge!=null?ud(e.edge):"dim"}">${e.edge!=null?sfmt(e.edge):"—"}</td></tr>`;
   }).join("");
 }
 
