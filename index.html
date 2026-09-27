@@ -592,9 +592,12 @@ function showdown(){
   const dead=[].concat(...G.hands);
   const eq=eqExact(L.map(s=>G.hands[s]),G.flops,dead);
   G.result={uncontested:false,boards,eq:Object.fromEntries(L.map((s,i)=>[s,eq[i]]))};
-  // hero's own number is judged on what hero could know: random hands,
-  // one per opponent who went in
-  if(G.seat[0].in)G.result.heroEq=eqField(G.hands[0],G.flops,L.length-1,5000);
+  // the equity shown on the plates is judged on what each player could
+  // know: random hands, one per opponent who went in. The exact numbers
+  // above only feed the EV-adjusted score.
+  const tr=L.length<=3?5000:3000;
+  G.result.fieldEq=Object.fromEntries(L.map(s=>[s,eqField(G.hands[s],G.flops,L.length-1,tr)]));
+  if(G.seat[0].in)G.result.heroEq=G.result.fieldEq[0];
   done();
 }
 function done(){
@@ -673,8 +676,7 @@ function stageHTML(){
     const reveal=hero||show.cards||(G.phase==="done"&&!G.result.uncontested&&st.in&&!st.folded);
     const cards=G.hands[s].map(c=>reveal?cardHTML(c):backHTML()).join("");
     let eqv="";
-    if(G.phase==="done"&&hero&&G.result.heroEq!=null)eqv=`<span class="eqp">${Math.round(G.result.heroEq*100)}%</span>`;
-    else if(G.phase==="done"&&G.result.eq&&G.result.eq[s]!=null)eqv=`<span class="eqp">${Math.round(G.result.eq[s]*100)}%</span>`;
+    if(G.phase==="done"&&G.result.fieldEq&&G.result.fieldEq[s]!=null)eqv=`<span class="eqp">${Math.round(G.result.fieldEq[s]*100)}%</span>`;
     else if(hero&&G.phase==="hero"&&show.eq)eqv=`<span class="eqp">${Math.round(G.hero.eqLive*100)}%</span>`;
     const net=sess.net[NAMES[s]]||0;
     html+=`<div class="seat${hero?" hero":""}${st.folded?" folded":""}${G.actor===s?" acting":""}${st.won>0&&G.phase==="done"?" won":""}" style="left:${x}%;top:${y}%">`+
