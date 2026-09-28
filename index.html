@@ -289,9 +289,10 @@ of the live field, nothing else.
 <b>EV</b> scores each decision on what you could know when you made it, not on
 the turn, river or the cards they held. With Random hands scoring, a pot that went to showdown counts at
 your equity against as many random hands as went in, a pot everyone folded to
-counts what it won, a fold counts the ante. <b>Edge</b> is how much better
-your choice was than the other one (for a fold, the bots behind are asked what
-they would have done had you potted); <b>Mistakes</b> adds up the negative edges.
+counts what it won, a fold counts the ante. <b>EV loss</b> is what a decision cost against the
+better choice: $0 when you got it right, however clear the spot (for a fold,
+the bots behind are asked what they would have done had you potted);
+<b>Mistakes</b> adds up the EV losses.
 <b>Scoring</b>: Ranges prices potting against the hands the bots actually
 put in with (their rule, in the spot each one was in) and lets the players
 behind you come in or fold the same way, averaged over their possible hands;
@@ -952,9 +953,11 @@ function infoHTML(){
   }
   if(e.edge!=null){
     const a=fmt(e.edge),pot=e.play==="POT";
-    const why=e.edge>=0?(pot?`potting was worth ${a} more than folding`:`folding saved ${a} over potting`):
+    // scored as EV loss: the right call costs nothing however clear it was;
+    // the margin stays in the text
+    const why=e.edge>=0?(pot?`right call · folding would have cost ${a}`:`right call · potting would have cost ${a}`):
       (pot?`folding would have lost ${a} less`:`potting was worth ${a} more`);
-    rows.push(`<div class="row"><span class="k">Decision</span><b class="${e.edge>=0?"good":"bad"}">${sfmt(e.edge)}</b>`+
+    rows.push(`<div class="row"><span class="k">EV loss</span><b class="${e.edge>=0?"good":"bad"}">${e.edge>=0?"$0":sfmt(e.edge)}</b>`+
       `<span class="msg">${why}</span></div>`);
   }
   return rows.join("");
@@ -971,7 +974,7 @@ function sessionHTML(){
 }
 function logHTML(){
   if(!sess.log.length)return`<tr><td class="dim" colspan="10">No hands yet.</td></tr>`;
-  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th><th>Edge</th></tr>`;
+  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th><th>EV loss</th></tr>`;
   return head+sess.log.slice(0,25).map(e=>{
     const ud=v=>v>0?"up":v<0?"dn":"";
     return`<tr><td class="dim">${e.no}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
@@ -979,7 +982,7 @@ function logHTML(){
       `<td class="dim">${e.need!=null?pct(e.need):"—"}</td>`+
       `<td>${e.trueEq!=null?pct(e.trueEq):"—"}</td>`+
       `<td class="${ud(e.net)}">${sfmt(e.net)}</td><td class="${ud(e.ev)}">${e.pending?"…":e.ev!=null?sfmt(e.ev):"—"}</td>`+
-      `<td class="${e.edge!=null?ud(e.edge):"dim"}">${e.pending?"…":e.edge!=null?sfmt(e.edge):"—"}</td></tr>`;
+      `<td class="${e.edge!=null&&e.edge<0?"dn":"dim"}">${e.pending?"…":e.edge==null?"—":e.edge<0?sfmt(e.edge):"$0"}</td></tr>`;
   }).join("");
 }
 
