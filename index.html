@@ -112,6 +112,10 @@ h1{font-family:"Avenir Next Condensed","Arial Narrow",Impact,sans-serif;
   padding:0 9px;font-size:12px;font-weight:700;color:var(--ink);
   font-variant-numeric:tabular-nums;box-shadow:0 1px 3px rgba(0,0,0,.14)}
 .eqp{font-size:10.5px;font-weight:700;color:var(--accent);margin-left:4px}
+/* PLO5/6: five or six cards are wider than the side seats have room for */
+@media(min-width:701px){
+  .stage.wide .seat:not(.hero) .card{font-size:13px;padding:0 3px}
+}
 
 /* ---- decision bar ---- */
 .decide{margin-top:14px;display:grid;grid-template-columns:auto auto 1fr;
@@ -830,8 +834,22 @@ function calcLink(){
   return CALC+`#cards=${G.H}&n=${ids.length}&seats=${seats.join(",")}`+
     (q.length?"&"+q.join("&"):"")+`&a=${fl(0)}&b=${fl(1)}&run=1`;
 }
+/* keep every seat's cards inside the stage: the side seats sit close to
+ * the edge, and a PLO5/6 hand is wider than the plate under it */
+function fitSeats(){
+  const st=$("stage"),box=st.getBoundingClientRect(),pad=6;
+  st.querySelectorAll(".seat").forEach(el=>{
+    const r=el.querySelector(".cards").getBoundingClientRect();
+    let dx=0;
+    if(r.left<box.left+pad)dx=box.left+pad-r.left;
+    else if(r.right>box.right-pad)dx=box.right-pad-r.right;
+    if(dx)el.style.left=`calc(${el.style.left} + ${dx}px)`;
+  });
+}
 function render(){
   $("stage").innerHTML=stageHTML();
+  $("stage").classList.toggle("wide",!!G&&G.H>=5);
+  fitSeats();
   $("info").innerHTML=infoHTML();
   const my=G&&G.phase==="hero";
   $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
