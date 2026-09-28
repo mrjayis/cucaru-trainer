@@ -186,7 +186,11 @@ td .card{font-size:12px;padding:0 3px;line-height:1.5}
 td.up{color:var(--pos)}td.dn{color:var(--neg)}
 td.dim{color:var(--ink-3)}
 .hint{color:var(--ink-3);font-size:12.5px;margin-top:10px;max-width:760px}
-.hint kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);
+.help{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:4px 14px;margin-top:10px;max-width:760px;color:var(--ink-2);font-size:13px}
+.help p{margin:8px 0}
+.help b{color:var(--ink)}
+.hint kbd,.help kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);
   border-radius:3px;padding:0 4px;background:var(--panel)}
 
 @media(max-width:700px){
@@ -252,6 +256,7 @@ players already in.</div>
 <div class="controls">
   <button id="dealBtn">Deal next hand ▸</button>
   <a class="calc" id="calcLink" target="_blank" rel="noopener">⚖ Open in DBBP calculator</a>
+  <button class="tog" id="helpBtn" aria-expanded="false" aria-controls="help">Help</button>
   <button class="tog" id="togAuto" aria-pressed="false" title="deal the next hand as soon as this one ends">Auto-deal</button>
   <span class="sep"></span>
   <button class="tog" id="togOdds" aria-pressed="true">Pot odds</button>
@@ -273,32 +278,34 @@ players already in.</div>
     <option value="normal">Normal</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
 </div>
 <div class="hint">Keys: <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or
-<kbd>Space</kbd> next hand (at any point: if you haven't acted, you fold and the
-rest of the hand is played out instantly). Settings apply from the next deal. <b>Pot odds</b> is
-the share of the final pot you need to win if nobody behind you comes in.
-When no one has put money in yet, it's the price against one caller, since
-if everyone folds you take the antes.
-<b>My equity</b> is your share of both boards against random hands, sampled
-from what you can actually see (your cards and the two flops).
-<b>Bots</b>: Standard asks 3% more than the average share for each player
+<kbd>Space</kbd> next hand · <kbd>?</kbd> help</div>
+<div class="help" id="help" hidden>
+<p><b>Keys.</b> <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or <kbd>Space</kbd>
+next hand, at any point: if you haven't acted, you fold and the rest of the hand
+is played out instantly. Settings apply from the next deal.</p>
+<p><b>Pot odds</b> is the share of the final pot you need to win if nobody
+behind you comes in. When no one has put money in yet, it's the price against
+one caller, since if everyone folds you take the antes.</p>
+<p><b>My equity</b> is your share of both boards against random hands, sampled
+from what you can actually see (your cards and the two flops).</p>
+<p><b>Bots.</b> Standard asks 3% more than the average share for each player
 still to act, and also pots when its equity against the players already in
 (plus about a third of those behind) beats the pot odds, with the bar raised
 40% per player in, since their hands are better than random. Tight asks 12%
-more on both tests, Loose 10% less. Classic is the old rule: average share
-of the live field, nothing else.
-<b>EV</b> scores each decision on what you could know when you made it, not on
-the turn, river or the cards they held. With Random hands scoring, a pot that went to showdown counts at
-your equity against as many random hands as went in, a pot everyone folded to
-counts what it won, a fold counts the ante. <b>EV loss</b> is what a decision cost against the
-better choice: $0 when you got it right, however clear the spot (for a fold,
-the bots behind are asked what they would have done had you potted);
-<b>Mistakes</b> adds up the EV losses.
-<b>Scoring</b>: Ranges prices potting against the hands the bots actually
+more on both tests, Loose 10% less. Classic is the old rule: average share of
+the live field, nothing else.</p>
+<p><b>EV</b> scores each decision on what you could know when you made it, not
+on the turn, river or the cards they held. <b>EV loss</b> is what a decision
+cost against the better choice: $0 when you got it right, however clear the
+spot. <b>Mistakes</b> adds up the EV losses.</p>
+<p><b>Scoring.</b> Ranges prices potting against the hands the bots actually
 put in with (their rule, in the spot each one was in) and lets the players
 behind you come in or fold the same way, averaged over their possible hands;
 EV is that price when you pot and the ante when you fold. Random hands is the
-older scoring: every opponent's hand random, the players behind as they
-really acted.</div>
+older scoring: every opponent's hand random, the players behind as they really
+acted (a pot that went to showdown counts at your equity against as many
+random hands as went in, a pot everyone folded to counts what it won).</p>
+</div>
 
 <div class="session" id="session"></div>
 <div class="loghead"><h2>Your hands</h2><button id="resetBtn">Reset session</button></div>
@@ -1067,6 +1074,12 @@ $("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12
 $("cfgSpeed").onchange=e=>{cfg.speed=e.target.value;syncControls();};
 $("cfgBots").onchange=e=>{cfg.bots=e.target.value;syncControls();};
 $("cfgScoring").onchange=e=>{cfg.scoring=e.target.value;syncControls();};
+function toggleHelp(){
+  const h=$("help"),open=h.hidden;h.hidden=!open;
+  $("helpBtn").setAttribute("aria-expanded",open);$("helpBtn").setAttribute("aria-pressed",open);
+  if(open)h.scrollIntoView({block:"nearest",behavior:"smooth"});
+}
+$("helpBtn").onclick=toggleHelp;
 $("resetBtn").onclick=()=>{sess=freshSession();store.set("sess",sess);render();};
 document.addEventListener("keydown",e=>{
   if(e.target.matches("input,select,textarea")||e.metaKey||e.ctrlKey)return;
@@ -1074,6 +1087,7 @@ document.addEventListener("keydown",e=>{
   if(k==="p")heroAct(true);
   else if(k==="f")heroAct(false);
   else if(k==="n"||k===" "){e.preventDefault();dealNow();}
+  else if(k==="?")toggleHelp();
 });
 NARROW.addEventListener("change",render);
 syncControls();
