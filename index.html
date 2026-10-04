@@ -364,16 +364,52 @@ const PAIRS={};
 for(let n=4;n<=6;n++){PAIRS[n]=[];for(let i=0;i<n;i++)for(let j=i+1;j<n;j++)PAIRS[n].push([i,j]);}
 const TRIPS5=[];
 for(let a=0;a<3;a++)for(let b=a+1;b<4;b++)for(let c=b+1;c<5;c++)TRIPS5.push([a,b,c]);
-function evalPLO(hole,board){  // board: 5 encoded cards
-  let best=-1;const hp=PAIRS[hole.length];
-  for(let i=0;i<hp.length;i++){
-    const ha=hole[hp[i][0]],hb=hole[hp[i][1]];
-    for(let j=0;j<10;j++){
-      const t=TRIPS5[j];
-      const v=eval5i(ha,hb,board[t[0]],board[t[1]],board[t[2]]);
-      if(v>best)best=v;
+/* board tables: on one 5-card board a PLO hand's value depends only on the
+ * RANKS of the two hole cards it plays, plus a flush when both are of the
+ * board's flush suit (a 5-card board has at most one suit with 3+ cards).
+ * One table per board, cached, turns evalPLO's 60 five-card evaluations
+ * per hand into one lookup per hole pair */
+const BT=new Map();
+function boardTable(board){
+  let a=board[0],b=board[1],c=board[2],d=board[3],e=board[4],x;
+  // sort so the key ignores card order
+  if(a>b){x=a;a=b;b=x;}if(d>e){x=d;d=e;e=x;}if(c>e){x=c;c=e;e=x;}if(c>d){x=c;c=d;d=x;}
+  if(b>e){x=b;b=e;e=x;}if(a>d){x=a;a=d;d=x;}if(a>c){x=a;a=c;c=x;}if(b>d){x=b;b=d;d=x;}if(b>c){x=b;b=c;c=x;}
+  const key=(((a*52+b)*52+c)*52+d)*52+e;
+  let t=BT.get(key);
+  if(t)return t;
+  if(BT.size>60000)BT.clear();
+  const bd=[a,b,c,d,e],rk=new Int32Array(169),sc=[0,0,0,0];
+  for(const y of bd)sc[y&3]++;
+  const fs=sc.indexOf(Math.max(...sc));
+  const flushSuit=sc[fs]>=3?fs:-1;
+  for(let r1=0;r1<13;r1++)for(let r2=r1;r2<13;r2++){
+    // two different suits: no five-card flush is possible
+    const h1=r1*4,h2=r2*4+1;let best=-1;
+    for(let j=0;j<10;j++){const T=TRIPS5[j];
+      const v=eval5i(h1,h2,bd[T[0]],bd[T[1]],bd[T[2]]);if(v>best)best=v;}
+    rk[r1*13+r2]=rk[r2*13+r1]=best;
+  }
+  let fl=null;
+  if(flushSuit>=0){
+    fl=new Int32Array(169);
+    const fc=bd.filter(y=>(y&3)===flushSuit);
+    for(let r1=0;r1<13;r1++)for(let r2=r1+1;r2<13;r2++){
+      const h1=r1*4+flushSuit,h2=r2*4+flushSuit;let best=-1;
+      for(let i=0;i<fc.length;i++)for(let j=i+1;j<fc.length;j++)for(let k=j+1;k<fc.length;k++){
+        const v=eval5i(h1,h2,fc[i],fc[j],fc[k]);if(v>best)best=v;}
+      fl[r1*13+r2]=fl[r2*13+r1]=best;
     }
   }
+  t={rk,fs:flushSuit,fl};BT.set(key,t);return t;
+}
+function evalPLO(hole,board){  // board: 5 encoded cards
+  const t=boardTable(board),rk=t.rk,fs=t.fs,n=hole.length;let best=-1;
+  for(let i=0;i<n-1;i++){const a=hole[i],ra=(a>>2)*13;
+    for(let j=i+1;j<n;j++){const b=hole[j];
+      let v=rk[ra+(b>>2)];
+      if(fs>=0&&(a&3)===fs&&(b&3)===fs){const f=t.fl[ra+(b>>2)];if(f>v)v=f;}
+      if(v>best)best=v;}}
   return best;
 }
 const CATS=["High card","Pair","Two pair","Trips","Straight","Flush",
@@ -648,7 +684,7 @@ function botRule(get,style,L,k,behind){
 }
 function botWants(s,L,k,behind){
   const memo={};
-  return botRule(n=>memo[n]??=eqField(G.hands[s],G.flops,n,1200),G.bots,L,k,behind);
+  return botRule(n=>memo[n]??=eqField(G.hands[s],G.flops,n,4000),G.bots,L,k,behind);
 }
 
 /* ---- range-aware scoring ----
@@ -662,7 +698,40 @@ function botWants(s,L,k,behind){
  * only if it passes the rule with hero in, and both boards are run out.
  * The result is the EV of potting on what hero could know, independent of
  * what actually happened. */
-const RANGE_POOL=200,RANGE_TRIALS=80,RANGE_SIMS=4000;
+/* How steady the answer is comes down to the pool: it is a sample of the
+ * hands the bots could hold, and every range and caller count is read off
+ * it. 200 hands swung one spot's EV by +/-$37 and its callers by +/-0.15
+ * between replays; 24,000 hold it to about +/-$4 and 0.02 callers.
+ * Building it is the expensive part (each hand's equity at every field
+ * size), so it is split across Web Workers running this same engine, about
+ * 1.5s. A host that refuses workers builds a smaller one here (+/-$12).
+ * The runouts themselves are cheap. */
+const RANGE_POOL=24000,RANGE_POOL_LOCAL=3000,RANGE_TRIALS=250,RANGE_SIMS=100000;
+const WORKER_SRC=`const CNT=new Int8Array(13);const TRIPS5=${JSON.stringify(TRIPS5)};const BT=new Map();
+${[eval5i,boardTable,evalPLO,deckWithout,eqMulti].join("\n")}
+onmessage=e=>{const d=e.data;
+  postMessage({id:d.id,eqs:d.hands.map(h=>Array.from(eqMulti(h,d.flops,d.maxN,d.trials)))});};`;
+let WK=null,jobN=0;
+const jobs=new Map();
+function workers(){
+  if(WK)return WK;  // [] once workers have failed: stay on this thread
+  WK=[];
+  try{
+    const url=URL.createObjectURL(new Blob([WORKER_SRC],{type:"text/javascript"}));
+    const k=Math.max(1,Math.min(8,(navigator.hardwareConcurrency||4)-1));
+    for(let i=0;i<k;i++){
+      const w=new Worker(url);
+      w.onmessage=e=>{const j=jobs.get(e.data.id);if(j){jobs.delete(e.data.id);j.res(e.data.eqs);}};
+      // a worker that can't start (a strict host) fails every job sent to it
+      w.onerror=()=>{for(const[id,j]of jobs)if(j.w===w){jobs.delete(id);j.rej();}};
+      WK.push(w);
+    }
+  }catch(e){WK=[];}
+  return WK;
+}
+function onWorker(w,data){
+  return new Promise((res,rej)=>{const id=++jobN;jobs.set(id,{res,rej,w});w.postMessage(Object.assign({id},data));});
+}
 // yield to the page between chunks. A timer, not a MessageChannel: a chain
 // of channel messages runs ahead of timers and would stall the bots' turns
 const tick=()=>new Promise(res=>setTimeout(res,0));
@@ -673,12 +742,26 @@ const yieldFor=g=>G===g?tick():new Promise(res=>setTimeout(res,15));
 async function buildPool(g){
   const used=new Set(g.hands[0].concat(g.flops[0],g.flops[1]));
   const deck=[...Array(52).keys()].filter(c=>!used.has(c));
-  const pool=[];
-  for(let i=0;i<RANGE_POOL;i++){
+  const deal=()=>{
     const h=[];
     while(h.length<g.H){const c=deck[Math.floor(Math.random()*deck.length)];if(!h.includes(c))h.push(c);}
+    return h;
+  };
+  const wk=workers();
+  if(wk.length){
+    const hands=Array.from({length:RANGE_POOL},deal),CH=500,parts=[];
+    for(let i=0,j=0;i<hands.length;i+=CH,j++)
+      parts.push(onWorker(wk[j%wk.length],{hands:hands.slice(i,i+CH),flops:g.flops,maxN:g.n-1,trials:RANGE_TRIALS}));
+    try{
+      const eqs=[].concat(...await Promise.all(parts));
+      return hands.map((h,i)=>({h,eq:eqs[i]}));
+    }catch(e){WK=[];}  // fall back to this thread from now on
+  }
+  const pool=[];
+  for(let i=0;i<RANGE_POOL_LOCAL;i++){
+    const h=deal();
     pool.push({h,eq:eqMulti(h,g.flops,g.n-1,RANGE_TRIALS)});
-    if(i%4===3){
+    if(i%25===24){
       await yieldFor(g);
       // a newer hand is on the table and this one has nothing left to price
       if(G!==g&&!(g.entry&&g.entry.pending))return null;
@@ -737,7 +820,7 @@ async function rangeScore(g,snap){
       if(nIn){if(me>bestIn)shareIn+=.5;else if(me===bestIn)shareIn+=.5/(tiesIn+1);}
     }
     tot+=share*pot;eqIn+=shareIn;
-    if(t%400===399)await yieldFor(g);
+    if(t%5000===4999)await yieldFor(g);
   }
   return{ev:tot/RANGE_SIMS-g.A-g.P0,eqIn:snap.before.length?eqIn/RANGE_SIMS:null,
     callers:callers/RANGE_SIMS,sizes:ranges.map(r=>r.length)};
@@ -773,13 +856,13 @@ function potAlt(){
   const rest=G.order.slice(G.idx+1);
   rest.forEach((s,i)=>{if(botWants(s,L,k,rest.length-1-i))k++;else L--;});
   const opp=k-1,pot=G.pot+k*G.P0-potters().length*G.P0;
-  const eq=opp?eqField(G.hands[0],G.flops,opp,5000):1;
+  const eq=opp?eqField(G.hands[0],G.flops,opp,20000):1;
   G.hero.alt={opp,pot,eq,ev:eq*pot-G.A-G.P0};
 }
 function heroInfo(){
   const k=potters().length,L=live().length;
-  return{k,L,eqLive:eqField(G.hands[0],G.flops,L-1,1500),
-    eqIn:k&&G.scoring!=="ranges"?eqField(G.hands[0],G.flops,k,1500):null,
+  return{k,L,eqLive:eqField(G.hands[0],G.flops,L-1,20000),
+    eqIn:k&&G.scoring!=="ranges"?eqField(G.hands[0],G.flops,k,20000):null,
     need:k?1/(k+2):1/3,need1:k?1/(k+3):1/4,behind:L-1-k,avg:1/L,potNow:G.pot};
 }
 function heroAct(pot){
@@ -827,7 +910,7 @@ function showdown(){
   // the equity shown on the plates is judged on what each player could
   // know: random hands, one per opponent who went in. The exact numbers
   // above only feed the EV-adjusted score.
-  const tr=L.length<=3?5000:3000;
+  const tr=20000;
   G.result.fieldEq=Object.fromEntries(L.map(s=>[s,eqField(G.hands[s],G.flops,L.length-1,tr)]));
   if(G.seat[0].in)G.result.heroEq=G.result.fieldEq[0];
   done();
