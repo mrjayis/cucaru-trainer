@@ -184,6 +184,14 @@ th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
 tr:last-child td{border-bottom:0}
 td .card{font-size:12px;padding:0 3px;line-height:1.5}
 td.up{color:var(--pos)}td.dn{color:var(--neg)}
+td.rp{display:flex;gap:4px;justify-content:flex-end;align-items:center}
+td.rp button,td.rp a{font:inherit;font-size:11.5px;font-weight:600;color:var(--ink-2);
+  background:transparent;border:1px solid var(--line);border-radius:5px;
+  padding:1px 7px;cursor:pointer;text-decoration:none;line-height:1.6}
+td.rp button:hover,td.rp a:hover{color:var(--ink);border-color:var(--ink-3)}
+td.rp a{color:var(--blue)}
+td.rp button:focus-visible,td.rp a:focus-visible{outline:2px solid var(--blue);outline-offset:1px}
+.rpt{margin-left:4px;font-size:10.5px;color:var(--ink-3)}
 td.dim{color:var(--ink-3)}
 .hint{color:var(--ink-3);font-size:12.5px;margin-top:10px;max-width:760px}
 .help{background:var(--panel);border:1px solid var(--line);border-radius:8px;
@@ -523,22 +531,43 @@ sess.log.forEach(e=>{if(e.pending)e.pending=false;});
 if(sess.net.JAY!=null&&sess.net.HERO==null){sess.net.HERO=sess.net.JAY;delete sess.net.JAY;}
 const esc=t=>String(t).replace(/[&<>"']/g,c=>"&#"+c.charCodeAt(0)+";");
 const disp=s=>s===0?esc(cfg.name||"JAY"):NAMES[s];
-let G=null,timer=null,rush=false;
+let G=null,timer=null,rush=false,nextSpec=null;
 
-function newHand(){
+/* spec: replay a logged hand (its .snap). mode "same" keeps every card and
+ * replays the bots' choices; "random" keeps your hand, both flops and your
+ * seat, and deals everyone else fresh from the cards left. */
+function newHand(spec){
   clearTimeout(timer);rush=false;
-  const n=Math.min(cfg.players,maxPlayers(cfg.hole)),H=cfg.hole,A=cfg.ante;
-  const fixed=posLabels(n).indexOf(cfg.seat);
-  if(fixed>=0)sess.btn=(n-fixed)%n;
-  else if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
-  const deck=shuffle([...Array(52).keys()]);
-  const hands=[];for(let s=0;s<n;s++)hands.push(deck.splice(0,H));
-  const flops=[deck.splice(0,3),deck.splice(0,3)];
-  const runs=[deck.splice(0,2),deck.splice(0,2)];  // dealt now, shown only at showdown
+  spec=spec||nextSpec;nextSpec=null;
+  let n,H,A,btn,hands,flops,runs;
+  if(spec){
+    n=spec.n;H=spec.H;A=spec.A;btn=spec.btn;
+    flops=spec.flops.map(f=>f.slice());
+    if(spec.mode==="same"){
+      hands=spec.hands.map(h=>h.slice());runs=spec.runs.map(r=>r.slice());
+    }else{
+      const used=new Set(spec.hands[0].concat(flops[0],flops[1]));
+      const deck=shuffle([...Array(52).keys()].filter(c=>!used.has(c)));
+      hands=[spec.hands[0].slice()];
+      for(let s=1;s<n;s++)hands.push(deck.splice(0,H));
+      runs=[deck.splice(0,2),deck.splice(0,2)];
+    }
+  }else{
+    n=Math.min(cfg.players,maxPlayers(cfg.hole));H=cfg.hole;A=cfg.ante;
+    const fixed=posLabels(n).indexOf(cfg.seat);
+    if(fixed>=0)sess.btn=(n-fixed)%n;
+    else if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
+    btn=sess.btn;
+    const deck=shuffle([...Array(52).keys()]);
+    hands=[];for(let s=0;s<n;s++)hands.push(deck.splice(0,H));
+    flops=[deck.splice(0,3),deck.splice(0,3)];
+    runs=[deck.splice(0,2),deck.splice(0,2)];  // dealt now, shown only at showdown
+  }
   const labels=posLabels(n),pos=[];
-  for(let k=0;k<n;k++)pos[(sess.btn+k)%n]=labels[k];
-  const order=[];for(let k=1;k<=n;k++)order.push((sess.btn+k)%n);  // SB ... BTN
-  G={no:sess.hands+1,n,H,A,P0:n*A,btn:sess.btn,bots:cfg.bots,scoring:cfg.scoring,ctx:{},hands,flops,runs,pos,order,idx:0,
+  for(let k=0;k<n;k++)pos[(btn+k)%n]=labels[k];
+  const order=[];for(let k=1;k<=n;k++)order.push((btn+k)%n);  // SB ... BTN
+  G={no:sess.hands+1,n,H,A,P0:n*A,btn,bots:spec?spec.bots:cfg.bots,scoring:cfg.scoring,ctx:{},hands,flops,runs,pos,order,idx:0,
+     replay:spec?{mode:spec.mode,of:spec.no,acts:spec.mode==="same"?spec.acts:null,hero:spec.hero}:null,
      seat:Array.from({length:n},()=>({folded:false,in:false,act:null,won:0})),
      pot:n*A,street:0,phase:"action",actor:null,hero:null,result:null};
   for(let s=0;s<n;s++)sess.net[NAMES[s]]=(sess.net[NAMES[s]]||0)-A;
@@ -599,6 +628,11 @@ const BOT_STYLE={tight:1.12,standard:1,loose:.9};
 function botAct(s){
   const c={L:live().length,k:potters().length,behind:G.order.length-1-G.idx};
   G.ctx[s]=c;  // the spot each bot decided in, for range-aware scoring
+  // a same-cards replay: the bots before you do what they did, and the
+  // ones behind repeat themselves too while you play it the same way;
+  // play it differently and they decide afresh
+  const r=G.replay,was=r&&r.acts?r.acts[s]:null;
+  if(was&&(!G.hero||G.hero.choice===r.hero)){if(was==="POT")putIn(s);else fold(s);return;}
   if(botWants(s,c.L,c.k,c.behind))putIn(s);else fold(s);
 }
 /* L live players, k already in, behind still to act after s. get(n) is
@@ -822,7 +856,11 @@ function done(){
   const entry={no:G.no,pos:G.pos[0],cards:G.hands[0],play:h?h.choice:"—",
     eqLive:h?h.eqLive:null,need:h?h.need:null,
     trueEq:me.in?(G.result.heroEq??null):(G.result.foldEq??null),
-    net,ev,edge,field:h?h.L:null,pending:ranged||undefined};
+    net,ev,edge,field:h?h.L:null,pending:ranged||undefined,
+    replay:G.replay?(G.replay.mode==="same"?"↻":"↻r")+G.replay.of:undefined,
+    snap:{no:G.no,n:G.n,H:G.H,A:G.A,btn:G.btn,bots:G.bots,hands:G.hands,flops:G.flops,runs:G.runs,
+      hero:h?h.choice:null,in:G.seat.map(x=>x.in),
+      acts:G.seat.map(x=>x.in?"POT":x.folded?"FOLD":null)}};
   sess.log.unshift(entry);
   if(ranged){G.entry=entry;applyRange(G);}
   sess.log=sess.log.slice(0,60);
@@ -980,16 +1018,19 @@ function sessionHTML(){
     tile("Potted",sess.decisions?Math.round(100*sess.potted/sess.decisions)+"%":"—");
 }
 function logHTML(){
-  if(!sess.log.length)return`<tr><td class="dim" colspan="10">No hands yet.</td></tr>`;
-  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th><th>EV loss</th></tr>`;
-  return head+sess.log.slice(0,25).map(e=>{
+  if(!sess.log.length)return`<tr><td class="dim" colspan="11">No hands yet.</td></tr>`;
+  const head=`<tr><th>#</th><th>Pos</th><th>Hand</th><th>Play</th><th>Field eq</th><th>Needed</th><th>Flop eq</th><th>Net</th><th>EV</th><th>EV loss</th><th>Replay</th></tr>`;
+  return head+sess.log.slice(0,25).map((e,i)=>{
     const ud=v=>v>0?"up":v<0?"dn":"";
-    return`<tr><td class="dim">${e.no}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
+    const rp=e.snap?`<td class="rp"><button data-rp="same" data-i="${i}" title="the same hands: the bots before you act as they did">↻ Same</button>`+
+      `<button data-rp="random" data-i="${i}" title="your hand, both flops and your seat; everyone else dealt new random hands">↻ Random</button>`+
+      `<a href="${esc(snapCalc(e.snap))}" target="_blank" rel="noopener" title="this hand in the DBBP equity calculator">⚖</a></td>`:`<td class="dim">—</td>`;
+    return`<tr><td class="dim">${e.no}${e.replay?`<span class="rpt">${e.replay}</span>`:""}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
       `<td>${e.play}</td><td>${e.eqLive!=null?pct(e.eqLive):"—"}</td>`+
       `<td class="dim">${e.need!=null?pct(e.need):"—"}</td>`+
       `<td>${e.trueEq!=null?pct(e.trueEq):"—"}</td>`+
       `<td class="${ud(e.net)}">${sfmt(e.net)}</td><td class="${ud(e.ev)}">${e.pending?"…":e.ev!=null?sfmt(e.ev):"—"}</td>`+
-      `<td class="${e.edge!=null&&e.edge<0?"dn":"dim"}">${e.pending?"…":e.edge==null?"—":e.edge<0?sfmt(e.edge):"$0"}</td></tr>`;
+      `<td class="${e.edge!=null&&e.edge<0?"dn":"dim"}">${e.pending?"…":e.edge==null?"—":e.edge<0?sfmt(e.edge):"$0"}</td>${rp}</tr>`;
   }).join("");
 }
 
@@ -1015,6 +1056,21 @@ function calcLink(){
   const fl=b=>G.flops[b].map(cardStr).join("");
   return CALC+`#cards=${G.H}&n=${ids.length}&seats=${seats.join(",")}`+
     (q.length?"&"+q.join("&"):"")+`&a=${fl(0)}&b=${fl(1)}&run=1`;
+}
+/* a logged hand in the calculator: you plus every player who went in,
+ * all with their real cards (the hand is over, so nothing is hidden) */
+function snapCalc(sn){
+  const ids=[0].concat(sn.in.map((v,i)=>v&&i!==0?i:-1).filter(i=>i>0));
+  const seats=ids.map(s=>sn.hands[s].map(cardStr).join(""));
+  const fl=b=>sn.flops[b].map(cardStr).join("");
+  return CALC+`#cards=${sn.H}&n=${ids.length}&seats=${seats.join(",")}&a=${fl(0)}&b=${fl(1)}&run=1`;
+}
+function replay(i,mode){
+  const e=sess.log[+i];if(!e||!e.snap)return;
+  nextSpec=Object.assign({mode},e.snap);
+  if(G&&G.phase!=="done")dealNow();  // finish the hand on the table first
+  else newHand();
+  window.scrollTo({top:0,behavior:"smooth"});
 }
 /* keep every seat's cards inside the stage: the side seats sit close to
  * the edge, and a PLO5/6 hand is wider than the plate under it */
@@ -1081,6 +1137,7 @@ function toggleHelp(){
 }
 $("helpBtn").onclick=toggleHelp;
 $("resetBtn").onclick=()=>{sess=freshSession();store.set("sess",sess);render();};
+$("log").onclick=e=>{const b=e.target.closest("button[data-rp]");if(b)replay(b.dataset.i,b.dataset.rp);};
 document.addEventListener("keydown",e=>{
   if(e.target.matches("input,select,textarea")||e.metaKey||e.ctrlKey)return;
   const k=e.key.toLowerCase();
