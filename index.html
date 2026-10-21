@@ -245,7 +245,7 @@ td.dim{color:var(--ink-3)}
 <div class="wrap">
 <div class="eyebrow">Pokerhud</div>
 <h1>Cucaru trainer</h1>
-<div class="sub">Double-board PLO where everyone antes, two flops come out,
+<div class="sub" id="sub">Double-board PLO where everyone antes, two flops come out,
 and each player gets one decision: pot or fold. Action starts
 in the small blind and ends on the button; there is no betting on the
 turn or river. The bots put money in when their equity against the live
@@ -274,6 +274,8 @@ players already in.</div>
   <label class="set">Your name <input type="text" id="cfgName" maxlength="12" autocomplete="nickname" spellcheck="false"></label>
   <label class="set">Players <select id="cfgPlayers"></select></label>
   <label class="set">Position <select id="cfgSeat"></select></label>
+  <label class="set">Boards <select id="cfgBoards">
+    <option value="2">Double</option><option value="1">Single</option></select></label>
   <label class="set">Cards <select id="cfgHole">
     <option value="4">PLO4</option><option value="5">PLO5</option><option value="6">PLO6</option></select></label>
   <label class="set">Bots <select id="cfgBots">
@@ -294,8 +296,11 @@ is played out instantly. Settings apply from the next deal.</p>
 <p><b>Pot odds</b> is the share of the final pot you need to win if nobody
 behind you comes in. When no one has put money in yet, it's the price against
 one caller, since if everyone folds you take the antes.</p>
-<p><b>My equity</b> is your share of both boards against random hands, sampled
-from what you can actually see (your cards and the two flops).</p>
+<p><b>My equity</b> is your share of the pot (half per board on double board)
+against random hands, sampled from what you can actually see (your cards and
+the flops).</p>
+<p><b>Boards.</b> Double deals two flops, each worth half the pot; Single deals
+one flop for the whole pot (PLO5 seats 9 on single board, 8 on double).</p>
 <p><b>Bots.</b> Standard asks 3% more than the average share for each player
 still to act, and also pots when its equity against the players already in
 (plus about a third of those behind) beats the pot odds, with the bar raised
@@ -443,24 +448,21 @@ function shuffle(d){
 }
 
 /* Equity against random hands: what a player can know at decision time
- * (own cards + both flops). Each trial deals nOpp random hands plus a
- * turn and river for each board from one deck; each board is half the
- * pot, ties split. */
+ * (own cards + the flops). Each trial deals nOpp random hands plus a
+ * turn and river for each board from one deck; each board is an equal
+ * share of the pot (half on double board), ties split. */
 function eqField(hole,flops,nOpp,trials){
   if(nOpp<=0)return 1;
-  const H=hole.length,d=deckWithout(hole.concat(flops[0],flops[1]));
-  const need=nOpp*H+4,top=new Array(5),bot=new Array(5),opp=new Array(H);
-  for(let i=0;i<3;i++){top[i]=flops[0][i];bot[i]=flops[1][i];}
-  const oppScore=[new Float64Array(nOpp),new Float64Array(nOpp)];
+  const NB=flops.length,w=1/NB,H=hole.length,d=deckWithout(hole.concat(...flops));
+  const need=nOpp*H+2*NB,boards=flops.map(f=>f.concat([0,0])),opp=new Array(H);
   let tally=0;
   for(let t=0;t<trials;t++){
     for(let k=0;k<need;k++){
       const idx=k+Math.floor(Math.random()*(d.length-k));
       const tmp=d[k];d[k]=d[idx];d[idx]=tmp;
     }
-    top[3]=d[nOpp*H];top[4]=d[nOpp*H+1];bot[3]=d[nOpp*H+2];bot[4]=d[nOpp*H+3];
-    const boards=[top,bot];
-    for(let b=0;b<2;b++){
+    for(let b=0;b<NB;b++){boards[b][3]=d[nOpp*H+2*b];boards[b][4]=d[nOpp*H+2*b+1];}
+    for(let b=0;b<NB;b++){
       const me=evalPLO(hole,boards[b]);
       let best=-1,ties=0;
       for(let o=0;o<nOpp;o++){
@@ -469,8 +471,8 @@ function eqField(hole,flops,nOpp,trials){
         if(v>best){best=v;ties=0;}
         if(v===best)ties++;
       }
-      if(me>best)tally+=.5;
-      else if(me===best)tally+=.5/(ties+1);
+      if(me>best)tally+=w;
+      else if(me===best)tally+=w/(ties+1);
     }
   }
   return tally/trials;
@@ -480,18 +482,16 @@ function eqField(hole,flops,nOpp,trials){
  * random hands, n=1..maxN, from the same deals (each trial's first n
  * opponents), so one call serves every seat's rule */
 function eqMulti(hole,flops,maxN,trials){
-  const H=hole.length,d=deckWithout(hole.concat(flops[0],flops[1]));
-  const need=maxN*H+4,top=new Array(5),bot=new Array(5),opp=new Array(H);
-  for(let i=0;i<3;i++){top[i]=flops[0][i];bot[i]=flops[1][i];}
+  const NB=flops.length,w=1/NB,H=hole.length,d=deckWithout(hole.concat(...flops));
+  const need=maxN*H+2*NB,boards=flops.map(f=>f.concat([0,0])),opp=new Array(H);
   const tally=new Float64Array(maxN+1);
   for(let t=0;t<trials;t++){
     for(let k=0;k<need;k++){
       const idx=k+Math.floor(Math.random()*(d.length-k));
       const tmp=d[k];d[k]=d[idx];d[idx]=tmp;
     }
-    top[3]=d[maxN*H];top[4]=d[maxN*H+1];bot[3]=d[maxN*H+2];bot[4]=d[maxN*H+3];
-    const boards=[top,bot];
-    for(let b=0;b<2;b++){
+    for(let b=0;b<NB;b++){boards[b][3]=d[maxN*H+2*b];boards[b][4]=d[maxN*H+2*b+1];}
+    for(let b=0;b<NB;b++){
       const me=evalPLO(hole,boards[b]);
       let best=-1,ties=0;
       for(let o=0;o<maxN;o++){
@@ -499,8 +499,8 @@ function eqMulti(hole,flops,maxN,trials){
         const v=evalPLO(opp,boards[b]);
         if(v>best){best=v;ties=0;}
         if(v===best)ties++;
-        if(me>best)tally[o+1]+=.5;
-        else if(me===best)tally[o+1]+=.5/(ties+1);
+        if(me>best)tally[o+1]+=w;
+        else if(me===best)tally[o+1]+=w/(ties+1);
       }
     }
   }
@@ -510,11 +510,11 @@ function eqMulti(hole,flops,maxN,trials){
 
 /* Exact equity with every hand known (the result screen). Each board's
  * turn and river are uniform over the cards not yet seen, so each board
- * is enumerated on its own and the two halves are averaged. */
+ * is enumerated on its own and the boards' shares are averaged. */
 function eqExact(hands,flops,dead){
-  const n=hands.length,d=deckWithout(dead.concat(flops[0],flops[1]));
+  const NB=flops.length,n=hands.length,d=deckWithout(dead.concat(...flops));
   const out=new Float64Array(n),sc=new Float64Array(n);
-  for(let b=0;b<2;b++){
+  for(let b=0;b<NB;b++){
     const full=flops[b].concat([0,0]);let cnt=0;
     const tally=new Float64Array(n);
     for(let i=0;i<d.length;i++)for(let j=i+1;j<d.length;j++){
@@ -524,7 +524,7 @@ function eqExact(hands,flops,dead){
       for(let p=0;p<n;p++)if(sc[p]===best)tally[p]+=1/ties;
       cnt++;
     }
-    for(let p=0;p<n;p++)out[p]+=.5*tally[p]/cnt;
+    for(let p=0;p<n;p++)out[p]+=tally[p]/cnt/NB;
   }
   return Array.from(out);
 }
@@ -538,7 +538,7 @@ function posLabels(n){  // clockwise from the button
   if(n===2)return["BTN","SB"];
   return["BTN","SB","BB"].concat(MIDDLE[n-3]);
 }
-const maxPlayers=h=>Math.min(10,Math.floor(42/h));  // hands + two 5-card boards
+const maxPlayers=(h,nb)=>Math.min(10,Math.floor((52-5*nb)/h));  // hands + nb 5-card boards
 
 const fmt=v=>"$"+Math.round(Math.abs(v)).toLocaleString();
 const sfmt=v=>Math.round(v)===0?"$0":(v<0?"−$":"+$")+Math.round(Math.abs(v)).toLocaleString();
@@ -555,7 +555,7 @@ const store={
   get(k,d){try{const v=localStorage.getItem("cucaru."+k);return v?JSON.parse(v):d;}catch(e){return d;}},
   set(k,v){try{localStorage.setItem("cucaru."+k,JSON.stringify(v));}catch(e){}}
 };
-let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate",bots:"standard",scoring:"ranges"},store.get("cfg",{}));
+let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate",bots:"standard",scoring:"ranges",boards:2},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
 let show=Object.assign({odds:true,eq:true,cards:false,auto:false},store.get("show",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,lost:0,potted:0,decisions:0,log:[],btn:0,evv:2});
@@ -570,7 +570,7 @@ const disp=s=>s===0?esc(cfg.name||"JAY"):NAMES[s];
 let G=null,timer=null,rush=false,nextSpec=null;
 
 /* spec: replay a logged hand (its .snap). mode "same" keeps every card and
- * replays the bots' choices; "random" keeps your hand, both flops and your
+ * replays the bots' choices; "random" keeps your hand, the flops and your
  * seat, and deals everyone else fresh from the cards left. */
 function newHand(spec){
   clearTimeout(timer);rush=false;
@@ -582,27 +582,27 @@ function newHand(spec){
     if(spec.mode==="same"){
       hands=spec.hands.map(h=>h.slice());runs=spec.runs.map(r=>r.slice());
     }else{
-      const used=new Set(spec.hands[0].concat(flops[0],flops[1]));
+      const used=new Set(spec.hands[0].concat(...flops));
       const deck=shuffle([...Array(52).keys()].filter(c=>!used.has(c)));
       hands=[spec.hands[0].slice()];
       for(let s=1;s<n;s++)hands.push(deck.splice(0,H));
-      runs=[deck.splice(0,2),deck.splice(0,2)];
+      runs=flops.map(()=>deck.splice(0,2));
     }
   }else{
-    n=Math.min(cfg.players,maxPlayers(cfg.hole));H=cfg.hole;A=cfg.ante;
+    n=Math.min(cfg.players,maxPlayers(cfg.hole,cfg.boards));H=cfg.hole;A=cfg.ante;
     const fixed=posLabels(n).indexOf(cfg.seat);
     if(fixed>=0)sess.btn=(n-fixed)%n;
     else if(G&&G.n===n)sess.btn=(sess.btn+1)%n;else sess.btn=Math.floor(Math.random()*n);
     btn=sess.btn;
     const deck=shuffle([...Array(52).keys()]);
     hands=[];for(let s=0;s<n;s++)hands.push(deck.splice(0,H));
-    flops=[deck.splice(0,3),deck.splice(0,3)];
-    runs=[deck.splice(0,2),deck.splice(0,2)];  // dealt now, shown only at showdown
+    flops=Array.from({length:cfg.boards},()=>deck.splice(0,3));
+    runs=flops.map(()=>deck.splice(0,2));  // dealt now, shown only at showdown
   }
   const labels=posLabels(n),pos=[];
   for(let k=0;k<n;k++)pos[(btn+k)%n]=labels[k];
   const order=[];for(let k=1;k<=n;k++)order.push((btn+k)%n);  // SB ... BTN
-  G={no:sess.hands+1,n,H,A,P0:n*A,btn,bots:spec?spec.bots:cfg.bots,scoring:cfg.scoring,ctx:{},hands,flops,runs,pos,order,idx:0,
+  G={no:sess.hands+1,n,H,A,NB:flops.length,P0:n*A,btn,bots:spec?spec.bots:cfg.bots,scoring:cfg.scoring,ctx:{},hands,flops,runs,pos,order,idx:0,
      replay:spec?{mode:spec.mode,of:spec.no,acts:spec.mode==="same"?spec.acts:null,hero:spec.hero}:null,
      seat:Array.from({length:n},()=>({folded:false,in:false,act:null,won:0})),
      pot:n*A,street:0,phase:"action",actor:null,hero:null,result:null};
@@ -695,7 +695,7 @@ function botWants(s,L,k,behind){
  * then the pool hands that pass its rule in the spot it decided in. At
  * hero's decision, potting is simulated: players already in get hands from
  * their ranges, each player still to act gets a random hand and comes in
- * only if it passes the rule with hero in, and both boards are run out.
+ * only if it passes the rule with hero in, and the boards are run out.
  * The result is the EV of potting on what hero could know, independent of
  * what actually happened. */
 /* How steady the answer is comes down to the pool: it is a sample of the
@@ -740,7 +740,7 @@ const tick=()=>new Promise(res=>setTimeout(res,0));
 // bots on the current hand
 const yieldFor=g=>G===g?tick():new Promise(res=>setTimeout(res,15));
 async function buildPool(g){
-  const used=new Set(g.hands[0].concat(g.flops[0],g.flops[1]));
+  const used=new Set(g.hands[0].concat(...g.flops));
   const deck=[...Array(52).keys()].filter(c=>!used.has(c));
   const deal=()=>{
     const h=[];
@@ -779,8 +779,8 @@ async function rangeScore(g,snap){
     if(r.length<8)r=pool.slice().sort((a,b)=>b.eq[x.L-1]-a.eq[x.L-1]).slice(0,8);
     return r;
   });
-  const hero=g.hands[0],base=hero.concat(g.flops[0],g.flops[1]);
-  const full=[g.flops[0].concat([0,0]),g.flops[1].concat([0,0])];
+  const hero=g.hands[0],base=hero.concat(...g.flops),NB=g.flops.length,w=1/NB;
+  const full=g.flops.map(f=>f.concat([0,0]));
   const used=new Uint8Array(52);
   const take=list=>{
     for(let a=0;a<40;a++){
@@ -806,7 +806,7 @@ async function rangeScore(g,snap){
     const pot=g.P0*(1+k);  // the antes plus everyone in, hero included
     if(!hs.length){tot+=pot;continue;}
     let share=0,shareIn=0;
-    for(let b=0;b<2;b++){
+    for(let b=0;b<NB;b++){
       full[b][3]=card();full[b][4]=card();
       const me=evalPLO(hero,full[b]);
       let best=-1,ties=0,bestIn=-1,tiesIn=0;
@@ -816,8 +816,8 @@ async function rangeScore(g,snap){
         if(v===best)ties++;
         if(o<nIn){if(v>bestIn){bestIn=v;tiesIn=0;}if(v===bestIn)tiesIn++;}
       }
-      if(me>best)share+=.5;else if(me===best)share+=.5/(ties+1);
-      if(nIn){if(me>bestIn)shareIn+=.5;else if(me===bestIn)shareIn+=.5/(tiesIn+1);}
+      if(me>best)share+=w;else if(me===best)share+=w/(ties+1);
+      if(nIn){if(me>bestIn)shareIn+=w;else if(me===bestIn)shareIn+=w/(tiesIn+1);}
     }
     tot+=share*pot;eqIn+=shareIn;
     if(t%5000===4999)await yieldFor(g);
@@ -891,8 +891,8 @@ function finish(){
     timer=setTimeout(()=>{G.street=2;showdown();},d);},d);
 }
 function showdown(){
-  const L=live(),half=G.pot/2,boards=[];
-  for(let b=0;b<2;b++){
+  const L=live(),half=G.pot/G.NB,boards=[];
+  for(let b=0;b<G.NB;b++){
     const full=G.flops[b].concat(G.runs[b]);
     const sc=L.map(s=>evalPLO(G.hands[s],full)),best=Math.max(...sc);
     const win=L.filter((s,i)=>sc[i]===best);
@@ -941,7 +941,7 @@ function done(){
     trueEq:me.in?(G.result.heroEq??null):(G.result.foldEq??null),
     net,ev,edge,field:h?h.L:null,pending:ranged||undefined,
     replay:G.replay?(G.replay.mode==="same"?"↻":"↻r")+G.replay.of:undefined,
-    snap:{no:G.no,n:G.n,H:G.H,A:G.A,btn:G.btn,bots:G.bots,hands:G.hands,flops:G.flops,runs:G.runs,
+    snap:{no:G.no,n:G.n,H:G.H,A:G.A,NB:G.NB,btn:G.btn,bots:G.bots,hands:G.hands,flops:G.flops,runs:G.runs,
       hero:h?h.choice:null,in:G.seat.map(x=>x.in),
       acts:G.seat.map(x=>x.in?"POT":x.folded?"FOLD":null)}};
   sess.log.unshift(entry);
@@ -973,12 +973,13 @@ function stageHTML(){
   if(!G)return html;
   const phaseName={action:"Flop action",hero:"Your decision",runout:"Running it out",done:"Result"}[G.phase];
   html+=`<div class="stamp">Hand <b>#${G.no}</b><span class="xtra"> · PLO${G.H} · <b>${fmt(G.A)}</b> ante · ${G.n}-handed</span> · <b>${phaseName}</b></div>`;
-  html+=`<div class="badges"><span class="badge">double board</span><span class="badge">pot or fold</span></div>`;
+  html+=`<div class="badges"><span class="badge">${G.NB>1?"double":"single"} board</span><span class="badge">pot or fold</span></div>`;
   html+=`<div class="wordmark">Cucaru</div>`;
   // boards: the flop, then turn and river slots that fill at showdown
   const upto=G.phase==="done"&&G.result.uncontested?3:3+G.street;
   let boards="";
-  ["TOP","BOT"].forEach((lbl,b)=>{
+  const LBL=G.NB>1?["TOP","BOT"]:["FLOP"];
+  LBL.forEach((lbl,b)=>{
     const cs=G.flops[b].concat(G.runs[b]);
     const won=G.result&&G.result.boards&&G.result.boards[b].win.includes(0);
     boards+=`<div class="board${won?" won":""}"><span class="lbl">${lbl}</span>`+
@@ -986,7 +987,7 @@ function stageHTML(){
   });
   let notes="";
   if(G.phase==="done"&&G.result.boards){
-    G.result.boards.forEach((r,b)=>{notes+=`<div class="potnote">${b?"BOT":"TOP"} · ${r.win.map(disp).join(", ")}${r.win.length>1?" split":""} · ${r.cat}</div>`;});
+    G.result.boards.forEach((r,b)=>{notes+=`<div class="potnote">${G.NB>1?LBL[b]+" · ":""}${r.win.map(disp).join(", ")}${r.win.length>1?" split":""} · ${r.cat}</div>`;});
   }else if(G.phase==="done"){
     const w=live()[0];
     notes+=`<div class="potnote">${disp(w)} takes it uncontested</div>`;
@@ -1106,7 +1107,7 @@ function logHTML(){
   return head+sess.log.slice(0,25).map((e,i)=>{
     const ud=v=>v>0?"up":v<0?"dn":"";
     const rp=e.snap?`<td class="rp"><button data-rp="same" data-i="${i}" title="the same hands: the bots before you act as they did">↻ Same</button>`+
-      `<button data-rp="random" data-i="${i}" title="your hand, both flops and your seat; everyone else dealt new random hands">↻ Random</button>`+
+      `<button data-rp="random" data-i="${i}" title="your hand, the flops and your seat; everyone else dealt new random hands">↻ Random</button>`+
       `<a href="${esc(snapCalc(e.snap))}" target="_blank" rel="noopener" title="this hand in the DBBP equity calculator">⚖</a></td>`:`<td class="dim">—</td>`;
     return`<tr><td class="dim">${e.no}${e.replay?`<span class="rpt">${e.replay}</span>`:""}</td><td>${e.pos}</td><td>${e.cards.map(c=>cardHTML(c)).join("")}</td>`+
       `<td>${e.play}</td><td>${e.eqLive!=null?pct(e.eqLive):"—"}</td>`+
@@ -1118,13 +1119,17 @@ function logHTML(){
 }
 
 const $=id=>document.getElementById(id);
+const SUB2=$("sub").innerHTML,SUB1=SUB2.replace("Double-board PLO","Single-board PLO").replace("two flops come out","one flop comes out");
 /* the same spot in the DBBP equity calculator, through its URL-hash
  * loader: seats (exact cards), rN (raw seat text, here Xx wildcards for
- * a hand you can't see), a/b (the two flops), cards (PLO4/5/6), run=1.
+ * a hand you can't see), a/b (the two flops; sb=1 and no b on single
+ * board), cards (PLO4/5/6), run=1.
  * Live hand: you plus every player still in, their cards only when
  * "Bot cards" is on. Finished showdown: the hands that went in, plus
  * yours if you folded. */
 const CALC="https://mrjayis.github.io/plo-dbbp-equity-calculator/";
+const flopQ=fl=>{const f=b=>fl[b].map(cardStr).join("");
+  return fl.length>1?`&a=${f(0)}&b=${f(1)}&sb=0`:`&a=${f(0)}&sb=1`;};
 function calcLink(){
   if(!G)return null;
   const showdown=G.phase==="done"&&!G.result.uncontested;
@@ -1136,17 +1141,15 @@ function calcLink(){
     if(s===0||showdown||show.cards)seats.push(G.hands[s].map(cardStr).join(""));
     else{seats.push("-");q.push(`r${k+1}=`+encodeURIComponent(Array(G.H).fill("Xx").join(" ")));}
   });
-  const fl=b=>G.flops[b].map(cardStr).join("");
   return CALC+`#cards=${G.H}&n=${ids.length}&seats=${seats.join(",")}`+
-    (q.length?"&"+q.join("&"):"")+`&a=${fl(0)}&b=${fl(1)}&run=1`;
+    (q.length?"&"+q.join("&"):"")+flopQ(G.flops)+`&run=1`;
 }
 /* a logged hand in the calculator: you plus every player who went in,
  * all with their real cards (the hand is over, so nothing is hidden) */
 function snapCalc(sn){
   const ids=[0].concat(sn.in.map((v,i)=>v&&i!==0?i:-1).filter(i=>i>0));
   const seats=ids.map(s=>sn.hands[s].map(cardStr).join(""));
-  const fl=b=>sn.flops[b].map(cardStr).join("");
-  return CALC+`#cards=${sn.H}&n=${ids.length}&seats=${seats.join(",")}&a=${fl(0)}&b=${fl(1)}&run=1`;
+  return CALC+`#cards=${sn.H}&n=${ids.length}&seats=${seats.join(",")}`+flopQ(sn.flops)+`&run=1`;
 }
 function replay(i,mode){
   const e=sess.log[+i];if(!e||!e.snap)return;
@@ -1176,14 +1179,16 @@ function render(){
   $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
   $("potAmt").textContent=G?"put in "+fmt(G.P0):" ";
   const cl=calcLink();$("calcLink").hidden=!cl;if(cl)$("calcLink").href=cl;
+  const on=G&&G.NB===1?"on the flop":"on both flops";
   $("calcLink").title=G&&G.phase==="done"&&!G.result.uncontested?
-    "the hands that went in, on both flops":
-    "your hand vs everyone still in, on both flops (their cards random unless Bot cards is on)";
+    `the hands that went in, ${on}`:
+    `your hand vs everyone still in, ${on} (their cards random unless Bot cards is on)`;
+  $("sub").innerHTML=G&&G.NB===1?SUB1:SUB2;
   $("session").innerHTML=sessionHTML();
   $("log").innerHTML=logHTML();
 }
 function syncControls(){
-  const mp=maxPlayers(cfg.hole);
+  const mp=maxPlayers(cfg.hole,cfg.boards);
   if(cfg.players>mp)cfg.players=mp;
   $("cfgPlayers").innerHTML=Array.from({length:mp-1},(_,i)=>i+2)
     .map(n=>`<option value="${n}"${n===cfg.players?" selected":""}>${n}</option>`).join("");
@@ -1192,7 +1197,7 @@ function syncControls(){
   if(!seats.includes(cfg.seat))cfg.seat="rotate";
   $("cfgSeat").innerHTML=[["rotate","Rotating"]].concat(seats.map(x=>[x,x]))
     .map(([v,t])=>`<option value="${v}"${v===cfg.seat?" selected":""}>${t}</option>`).join("");
-  $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;$("cfgBots").value=cfg.bots;$("cfgScoring").value=cfg.scoring;
+  $("cfgName").value=cfg.name;$("cfgHole").value=cfg.hole;$("cfgAnte").value=cfg.ante;$("cfgSpeed").value=cfg.speed;$("cfgBots").value=cfg.bots;$("cfgScoring").value=cfg.scoring;$("cfgBoards").value=cfg.boards;
   $("togOdds").setAttribute("aria-pressed",show.odds);
   $("togEq").setAttribute("aria-pressed",show.eq);
   $("togCards").setAttribute("aria-pressed",show.cards);
@@ -1213,6 +1218,7 @@ $("cfgName").oninput=e=>{cfg.name=e.target.value.trim().toUpperCase().slice(0,12
 $("cfgSpeed").onchange=e=>{cfg.speed=e.target.value;syncControls();};
 $("cfgBots").onchange=e=>{cfg.bots=e.target.value;syncControls();};
 $("cfgScoring").onchange=e=>{cfg.scoring=e.target.value;syncControls();};
+$("cfgBoards").onchange=e=>{cfg.boards=+e.target.value===1?1:2;syncControls();};
 function toggleHelp(){
   const h=$("help"),open=h.hidden;h.hidden=!open;
   $("helpBtn").setAttribute("aria-expanded",open);$("helpBtn").setAttribute("aria-pressed",open);
