@@ -201,6 +201,21 @@ td.dim{color:var(--ink-3)}
 .hint kbd,.help kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);
   border-radius:3px;padding:0 4px;background:var(--panel)}
 
+/* coach: a ring on the right button */
+.bigbtn.rec{box-shadow:0 0 0 3px var(--blue)}
+/* ---- spot editor ---- */
+.editor{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:6px 14px 8px;margin-top:10px;max-width:760px;font-size:13px;color:var(--ink-2)}
+.editor .erow{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;margin:6px 0}
+.editor label{display:flex;align-items:center;gap:6px}
+.editor .ek{color:var(--ink-3);font-size:11px;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;min-width:60px}
+.editor input[type=text]{width:160px;text-transform:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.editor input.short{width:118px}
+.editor .ederr{color:var(--neg);min-height:1.3em;font-size:12.5px}
+.editor .ederr.ok{color:var(--ink-3)}
+
 @media(max-width:700px){
   .wrap{padding:12px 16px 40px}
   h1{font-size:22px}.sub{font-size:12.5px;margin:2px 0 10px}
@@ -265,11 +280,13 @@ players already in.</div>
   <button id="dealBtn">Deal next hand ▸</button>
   <a class="calc" id="calcLink" target="_blank" rel="noopener">⚖ Open in DBBP calculator</a>
   <button class="tog" id="helpBtn" aria-expanded="false" aria-controls="help">Help</button>
+  <button class="tog" id="edBtn" aria-expanded="false" aria-controls="editor" title="set up a hand to experiment with">Spot editor</button>
   <button class="tog" id="togAuto" aria-pressed="false" title="deal the next hand as soon as this one ends">Auto-deal</button>
   <span class="sep"></span>
   <button class="tog" id="togOdds" aria-pressed="true">Pot odds</button>
   <button class="tog" id="togEq" aria-pressed="true">My equity</button>
   <button class="tog" id="togCards" aria-pressed="false" title="practice aid: show the bots' hands">Bot cards</button>
+  <button class="tog" id="togCoach" aria-pressed="false" title="show the right play at your decision">Coach</button>
   <span class="sep"></span>
   <label class="set">Your name <input type="text" id="cfgName" maxlength="12" autocomplete="nickname" spellcheck="false"></label>
   <label class="set">Players <select id="cfgPlayers"></select></label>
@@ -287,6 +304,7 @@ players already in.</div>
   <label class="set">Speed <select id="cfgSpeed">
     <option value="normal">Normal</option><option value="fast">Fast</option><option value="instant">Instant</option></select></label>
 </div>
+<div class="editor" id="editor" hidden></div>
 <div class="hint">Keys: <kbd>P</kbd> pot · <kbd>F</kbd> fold · <kbd>N</kbd> or
 <kbd>Space</kbd> next hand · <kbd>?</kbd> help</div>
 <div class="help" id="help" hidden>
@@ -301,6 +319,19 @@ against random hands, sampled from what you can actually see (your cards and
 the flops).</p>
 <p><b>Boards.</b> Double deals two flops, each worth half the pot; Single deals
 one flop for the whole pot (PLO5 seats 9 on single board, 8 on double).</p>
+<p><b>Coach</b> rings the right button at your decision and says what the other
+choice would cost, priced the way your decisions are scored. With Ranges scoring
+it is the potting price against the bots' ranges (it shows up once that lands,
+a second or two in). With Random hands it asks the real bots behind you what
+they would do, so it knows a little more than you could. Your EV and mistakes
+are still scored while it's on.</p>
+<p><b>Spot editor</b> sets up a hand to experiment with: your position and
+cards, the flops, the turns and rivers, any bot's hand. Leave a field blank or
+give fewer cards and the rest is dealt at random. Players, Cards and Boards come
+from the settings. <i>Copy this hand</i> fills it from the hand on the table
+(the bots' cards only when Bot cards is on); <i>keep dealing this spot</i> deals
+it again every hand, blanks fresh each time. Cards are typed like
+<kbd>AsKd10h2c</kbd>.</p>
 <p><b>Bots.</b> Standard asks 3% more than the average share for each player
 still to act, and also pots when its equity against the players already in
 (plus about a third of those behind) beats the pot odds, with the bar raised
@@ -557,7 +588,8 @@ const store={
 };
 let cfg=Object.assign({players:9,hole:4,ante:200,speed:"normal",name:"JAY",seat:"rotate",bots:"standard",scoring:"ranges",boards:2},store.get("cfg",{}));
 if(cfg.name==="HERO")cfg.name="JAY";  // the old default, saved before JAY was
-let show=Object.assign({odds:true,eq:true,cards:false,auto:false},store.get("show",{}));
+let show=Object.assign({odds:true,eq:true,cards:false,auto:false,coach:false},store.get("show",{}));
+let ed=Object.assign({pos:"BTN",hero:"",flops:["",""],runs:["",""],bots:{},repeat:false},store.get("edit",{}));
 const freshSession=()=>({hands:0,net:{},ev:0,lost:0,potted:0,decisions:0,log:[],btn:0,evv:2});
 let sess=Object.assign(freshSession(),store.get("sess",{}));
 // sessions saved before EV scored decisions: the old EV total meant
@@ -574,9 +606,16 @@ let G=null,timer=null,rush=false,nextSpec=null;
  * seat, and deals everyone else fresh from the cards left. */
 function newHand(spec){
   clearTimeout(timer);rush=false;
-  spec=spec||nextSpec;nextSpec=null;
+  spec=spec||nextSpec||(ed.repeat?editSpec().spec:null);nextSpec=null;
   let n,H,A,btn,hands,flops,runs;
-  if(spec){
+  if(spec&&spec.mode==="edit"){
+    // the spot editor: its cards as given, the rest dealt at random
+    n=spec.n;H=spec.H;A=spec.A;btn=spec.btn;
+    const used=new Set([].concat(...spec.hands,...spec.flops,...spec.runs));
+    const deck=shuffle([...Array(52).keys()].filter(c=>!used.has(c)));
+    const fill=(a,k)=>a.concat(deck.splice(0,k-a.length));
+    hands=spec.hands.map(h=>fill(h,H));flops=spec.flops.map(f=>fill(f,3));runs=spec.runs.map(r=>fill(r,2));
+  }else if(spec){
     n=spec.n;H=spec.H;A=spec.A;btn=spec.btn;
     flops=spec.flops.map(f=>f.slice());
     if(spec.mode==="same"){
@@ -623,7 +662,7 @@ function step(){
     const s=G.order[G.idx];G.actor=s;
     if(rush){
       if(s===0){
-        if(G.hero){G.hero.choice="FOLD";sess.decisions++;if(G.scoring!=="ranges")potAlt();}
+        if(G.hero){G.hero.choice="FOLD";sess.decisions++;if(G.scoring!=="ranges"&&!G.hero.alt)potAlt();}
         else G.hero={choice:"SKIP",eqLive:null,need:null,L:null};
         fold(0);
       }else botAct(s);
@@ -865,11 +904,20 @@ function heroInfo(){
     eqIn:k&&G.scoring!=="ranges"?eqField(G.hands[0],G.flops,k,20000):null,
     need:k?1/(k+2):1/3,need1:k?1/(k+3):1/4,behind:L-1-k,avg:1/L,potNow:G.pot};
 }
+/* the right play, priced as the decision will be scored: Ranges, the
+ * potting price against the bots' ranges (null until it lands); Random
+ * hands, potAlt's price (the real bots behind asked, random hands). */
+function coach(h){
+  let ev;
+  if(G.scoring==="ranges"){if(!h.range)return null;ev=h.range.ev;}
+  else{if(!h.alt)potAlt();ev=h.alt.ev;}
+  return{pot:ev>-G.A,ev,cost:Math.abs(ev+G.A)};
+}
 function heroAct(pot){
   if(!G||G.phase!=="hero")return;
   G.hero.choice=pot?"POT":"FOLD";
   sess.decisions++;if(pot)sess.potted++;
-  if(!pot&&G.scoring!=="ranges")potAlt();
+  if(!pot&&G.scoring!=="ranges"&&!G.hero.alt)potAlt();
   if(pot)putIn(0);else fold(0);
   G.phase="action";G.idx++;G.actor=null;
   render();
@@ -940,7 +988,7 @@ function done(){
     eqLive:h?h.eqLive:null,need:h?h.need:null,
     trueEq:me.in?(G.result.heroEq??null):(G.result.foldEq??null),
     net,ev,edge,field:h?h.L:null,pending:ranged||undefined,
-    replay:G.replay?(G.replay.mode==="same"?"↻":"↻r")+G.replay.of:undefined,
+    replay:!G.replay?undefined:G.replay.mode==="edit"?"✎":(G.replay.mode==="same"?"↻":"↻r")+G.replay.of,
     snap:{no:G.no,n:G.n,H:G.H,A:G.A,NB:G.NB,btn:G.btn,bots:G.bots,hands:G.hands,flops:G.flops,runs:G.runs,
       hero:h?h.choice:null,in:G.seat.map(x=>x.in),
       acts:G.seat.map(x=>x.in?"POT":x.folded?"FOLD":null)}};
@@ -1050,6 +1098,12 @@ function infoHTML(){
       `<div class="row"><span class="k">Pot odds</span><b>${pct(h.need)}</b>`+
       `<span class="msg">no one in yet: you win ${fmt(h.potNow)} if everyone folds · `+
       `need ${pct(h.need)} vs one caller${h.behind>1?`, ${pct(h.need1)} vs two`:""}</span></div>`);
+    if(show.coach){
+      const c=coach(h);
+      rows.unshift(c?`<div class="row"><span class="k">Coach</span><b class="good">${c.pot?"POT":"FOLD"}</b>`+
+        `<span class="msg">potting EV ${sfmt(c.ev)}, folding ${sfmt(-G.A)} · ${c.pot?"folding":"potting"} would cost ${fmt(c.cost)}</span></div>`:
+        `<div class="row"><span class="k">Coach</span><b>…</b><span class="msg">pricing against the bots' ranges</span></div>`);
+    }
     if(!rows.length)rows.push(`<div class="msg">Your call. Pot odds and equity are hidden.</div>`);
     return rows.join("")+lastHTML();
   }
@@ -1177,6 +1231,8 @@ function render(){
   $("info").innerHTML=infoHTML();
   const my=G&&G.phase==="hero";
   $("potBtn").disabled=!my;$("foldBtn").disabled=!my;
+  const c=my&&show.coach?coach(G.hero):null;
+  $("potBtn").classList.toggle("rec",!!c&&c.pot);$("foldBtn").classList.toggle("rec",!!c&&!c.pot);
   $("potAmt").textContent=G?"put in "+fmt(G.P0):" ";
   const cl=calcLink();$("calcLink").hidden=!cl;if(cl)$("calcLink").href=cl;
   const on=G&&G.NB===1?"on the flop":"on both flops";
@@ -1202,12 +1258,14 @@ function syncControls(){
   $("togEq").setAttribute("aria-pressed",show.eq);
   $("togCards").setAttribute("aria-pressed",show.cards);
   $("togAuto").setAttribute("aria-pressed",show.auto);
+  $("togCoach").setAttribute("aria-pressed",show.coach);
   store.set("cfg",cfg);store.set("show",show);
+  drawEditor();
 }
 $("potBtn").onclick=()=>heroAct(true);
 $("foldBtn").onclick=()=>heroAct(false);
 $("dealBtn").onclick=dealNow;
-[["togOdds","odds"],["togEq","eq"],["togCards","cards"],["togAuto","auto"]].forEach(([id,k])=>{
+[["togOdds","odds"],["togEq","eq"],["togCards","cards"],["togAuto","auto"],["togCoach","coach"]].forEach(([id,k])=>{
   $(id).onclick=()=>{show[k]=!show[k];syncControls();render();};
 });
 $("cfgSeat").onchange=e=>{cfg.seat=e.target.value;syncControls();};
@@ -1235,6 +1293,109 @@ document.addEventListener("keydown",e=>{
   else if(k==="n"||k===" "){e.preventDefault();dealNow();}
   else if(k==="?")toggleHelp();
 });
+/* ---- spot editor ---- */
+const SYM={"♠":"s","♥":"h","♦":"d","♣":"c"};
+function parseCards(t){  // "AsKd 10h2c" -> encoded cards, null if unreadable
+  const s=String(t||"").replace(/[♠♥♦♣]/g,c=>SYM[c]).replace(/10/g,"T").replace(/[\s,]+/g,"");
+  if(s.length%2)return null;
+  const out=[];
+  for(let i=0;i<s.length;i+=2){
+    const r=RANKS.indexOf(s[i].toUpperCase()),u=SUITS.indexOf(s[i+1].toLowerCase());
+    if(r<0||u<0)return null;
+    out.push(r*4+u);
+  }
+  return out;
+}
+const edN=()=>Math.min(cfg.players,maxPlayers(cfg.hole,cfg.boards));
+const edOrder=n=>posLabels(n).slice(1).concat("BTN");  // SB first, BTN last
+/* the editor's spot as a deal spec ({spec} or {err}); blank fields and
+ * missing cards are dealt at random */
+function editSpec(){
+  const n=edN(),H=cfg.hole,NB=cfg.boards,labels=posLabels(n);
+  if(!labels.includes(ed.pos))return{err:"Pick your position."};
+  const btn=(n-labels.indexOf(ed.pos))%n,seatOf=l=>(btn+labels.indexOf(l))%n;
+  const errs=[],seen=new Set();
+  const take=(txt,max,what)=>{
+    if(!txt||!txt.trim())return[];
+    const c=parseCards(txt);
+    if(!c){errs.push(`${what}: can't read “${txt.trim()}”`);return[];}
+    if(c.length>max)errs.push(`${what}: ${c.length} cards, at most ${max}`);
+    c.forEach(x=>{if(seen.has(x))errs.push(`${cardStr(x)} is used twice`);seen.add(x);});
+    return c.slice(0,max);
+  };
+  const hands=Array.from({length:n},()=>[]);
+  labels.forEach(l=>{hands[seatOf(l)]=take(l===ed.pos?ed.hero:ed.bots[l],H,l===ed.pos?"Your hand":l);});
+  const flops=[],runs=[],nm=["Top ","Bottom "];
+  for(let b=0;b<NB;b++){
+    flops.push(take(ed.flops[b],3,`${NB>1?nm[b]:""}flop`));
+    runs.push(take(ed.runs[b],2,`${NB>1?nm[b]:""}turn and river`));
+  }
+  if(errs.length)return{err:errs[0]};
+  return{spec:{mode:"edit",n,H,A:cfg.ante,btn,bots:cfg.bots,hands,flops,runs}};
+}
+const edEl=$("editor");
+function editorHTML(){
+  const n=edN(),order=edOrder(n),NB=cfg.boards;
+  if(!order.includes(ed.pos))ed.pos="BTN";
+  const inp=(k,v,ph,cls)=>`<input type="text" data-k="${k}" value="${esc(v||"")}" placeholder="${ph}"`+
+    ` spellcheck="false" autocomplete="off" autocapitalize="off"${cls?` class="${cls}"`:""}>`;
+  let h=`<div class="erow"><span class="ek">You</span>`+
+    `<label>Position <select data-k="pos">${order.map(p=>`<option${p===ed.pos?" selected":""}>${p}</option>`).join("")}</select></label>`+
+    `<label>Hand ${inp("hero",ed.hero,`${cfg.hole} cards, e.g. ${["AsKsQhJh","AsKsQhJhTd","AsKsQhJhTd9c"][cfg.hole-4]}`)}</label></div>`;
+  for(let b=0;b<NB;b++)h+=`<div class="erow"><span class="ek">${NB>1?["Top","Bottom"][b]:"Board"}</span>`+
+    `<label>Flop ${inp("flop"+b,ed.flops[b],"3 cards, e.g. 9h8h2c")}</label>`+
+    `<label>Turn, river ${inp("run"+b,ed.runs[b],"random","short")}</label></div>`;
+  h+=`<div class="erow"><span class="ek">Bots</span>`+
+    order.filter(p=>p!==ed.pos).map(p=>`<label>${p} ${inp("bot:"+p,ed.bots[p],"random","short")}</label>`).join("")+`</div>`;
+  h+=`<div class="erow"><button id="edDeal">Deal this spot ▸</button><button id="edFill">Copy this hand</button>`+
+    `<button id="edClear">Clear</button><label><input type="checkbox" id="edRepeat"${ed.repeat?" checked":""}> keep dealing this spot</label></div>`+
+    `<div class="ederr" id="edErr"></div>`;
+  return h;
+}
+function edCheck(){
+  const r=editSpec(),e=$("edErr");if(!e)return;
+  e.className="ederr"+(r.err?"":" ok");
+  e.textContent=r.err||`${r.spec.n}-handed PLO${r.spec.H}, ${cfg.boards>1?"double":"single"} board (from the settings) · blanks are dealt at random`;
+}
+function drawEditor(){if(!edEl.hidden){edEl.innerHTML=editorHTML();edCheck();}}
+function fillEditor(){
+  if(!G)return;
+  const str=a=>a.map(cardStr).join("");
+  cfg.players=G.n;cfg.hole=G.H;cfg.boards=G.NB;
+  ed.pos=G.pos[0];ed.hero=str(G.hands[0]);ed.flops=[0,1].map(b=>G.flops[b]?str(G.flops[b]):"");
+  ed.runs=["",""];ed.bots={};
+  // the bots' cards only when you can see them
+  if(show.cards)for(let s=1;s<G.n;s++)ed.bots[G.pos[s]]=str(G.hands[s]);
+  store.set("edit",ed);syncControls();
+}
+edEl.addEventListener("input",e=>{
+  const k=e.target.dataset.k;if(!k||k==="pos")return;
+  if(k==="hero")ed.hero=e.target.value;
+  else if(k.startsWith("flop"))ed.flops[+k.slice(4)]=e.target.value;
+  else if(k.startsWith("run"))ed.runs[+k.slice(3)]=e.target.value;
+  else ed.bots[k.slice(4)]=e.target.value;
+  store.set("edit",ed);edCheck();
+});
+edEl.addEventListener("change",e=>{
+  if(e.target.dataset.k==="pos"){ed.pos=e.target.value;store.set("edit",ed);drawEditor();}
+  else if(e.target.id==="edRepeat"){ed.repeat=e.target.checked;store.set("edit",ed);}
+});
+edEl.addEventListener("click",e=>{
+  const id=e.target.id;
+  if(id==="edDeal"){
+    const r=editSpec();if(r.err)return edCheck();
+    nextSpec=r.spec;
+    if(G&&G.phase!=="done")dealNow();else newHand();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }else if(id==="edFill")fillEditor();
+  else if(id==="edClear"){Object.assign(ed,{hero:"",flops:["",""],runs:["",""],bots:{}});store.set("edit",ed);drawEditor();}
+});
+$("edBtn").onclick=()=>{
+  const open=edEl.hidden;edEl.hidden=!open;
+  $("edBtn").setAttribute("aria-expanded",open);$("edBtn").setAttribute("aria-pressed",open);
+  drawEditor();
+};
+
 NARROW.addEventListener("change",render);
 syncControls();
 newHand();
