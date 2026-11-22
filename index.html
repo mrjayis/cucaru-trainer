@@ -1076,7 +1076,9 @@ function lastHTML(){
   if(!G||G.phase==="done"||!e||e.no!==G.no-1)return"";
   const what=e.play==="—"?"no decision":e.play==="SKIP"?"skipped":e.play.toLowerCase();
   return`<div class="row"><span class="k">Last hand</span><b class="${e.net>=0?"good":"bad"}">${sfmt(e.net)}</b>`+
-    `<span class="msg">#${e.no} · ${what}${e.trueEq!=null?` · flop eq ${pct(e.trueEq)}`:""}</span></div>`;
+    `<span class="msg">#${e.no} · ${what}${e.trueEq!=null?` · flop eq ${pct(e.trueEq)}`:""}</span>`+
+    (e.pending?`<span class="msg"> · EV loss …</span>`:e.edge==null?"":Math.round(e.edge)<0?
+      ` <b class="bad">⚠ EV loss ${sfmt(e.edge)}</b>`:`<span class="msg"> · no EV loss</span>`)+`</div>`;
 }
 function infoHTML(){
   if(!G)return`<div class="msg">Deal a hand to start.</div>`;
