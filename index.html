@@ -1077,8 +1077,9 @@ function lastHTML(){
   const what=e.play==="—"?"no decision":e.play==="SKIP"?"skipped":e.play.toLowerCase();
   return`<div class="row"><span class="k">Last hand</span><b class="${e.net>=0?"good":"bad"}">${sfmt(e.net)}</b>`+
     `<span class="msg">#${e.no} · ${what}${e.trueEq!=null?` · flop eq ${pct(e.trueEq)}`:""}</span>`+
-    (e.pending?`<span class="msg"> · EV loss …</span>`:e.edge==null?"":Math.round(e.edge)<0?
-      ` <b class="bad">⚠ EV loss ${sfmt(e.edge)}</b>`:`<span class="msg"> · no EV loss</span>`)+`</div>`;
+    (e.pending?`<span class="msg"> · EV …</span>`:e.ev==null||(e.play!=="POT"&&e.play!=="FOLD")?"":
+      ` <b class="${Math.round(e.ev)<0?"bad":"good"}">EV ${sfmt(e.ev)}</b>`+
+      (e.edge==null?"":Math.round(e.edge)<0?` <b class="bad">⚠ EV loss ${sfmt(e.edge)}</b>`:`<span class="msg"> · no EV loss</span>`))+`</div>`;
 }
 function infoHTML(){
   if(!G)return`<div class="msg">Deal a hand to start.</div>`;
